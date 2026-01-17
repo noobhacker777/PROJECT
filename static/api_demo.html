@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Detection API</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+        .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .header p { font-size: 1.2em; opacity: 0.9; }
+        
+        .content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+        
+        .api-endpoint {
+            background: #f5f5f5;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            border-radius: 5px;
+        }
+        
+        .api-endpoint strong {
+            color: #667eea;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .code-block {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+        
+        .code-block code { color: inherit; }
+        
+        .response-example {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #4CAF50;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .response-example pre {
+            margin: 0;
+            color: #333;
+            font-size: 0.85em;
+        }
+        
+        .section {
+            margin-bottom: 20px;
+        }
+        
+        .section h3 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+        
+        .section p {
+            color: #666;
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background 0.3s;
+        }
+        
+        button:hover { background: #764ba2; }
+        button.secondary {
+            background: #4CAF50;
+        }
+        button.secondary:hover { background: #45a049; }
+        
+        .status {
+            background: #e8f5e9;
+            border-left: 4px solid #4CAF50;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            color: #2e7d32;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            border-left-color: #c62828;
+            color: #c62828;
+        }
+        
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin: 10px 0;
+        }
+        
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .feature-list {
+            list-style: none;
+            margin: 10px 0;
+        }
+        
+        .feature-list li {
+            padding: 8px 0;
+            color: #666;
+        }
+        
+        .feature-list li:before {
+            content: "✓ ";
+            color: #4CAF50;
+            font-weight: bold;
+            margin-right: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎯 Product Detection API</h1>
+            <p>Detect products in images using trained HOLO11 model</p>
+        </div>
+        
+        <div class="content">
+            <!-- API Documentation -->
+            <div class="card">
+                <h2>📍 API Endpoint</h2>
+                
+                <div class="section">
+                    <h3>POST /api/detect</h3>
+                    <p>Upload an image to detect products and get count</p>
+                    
+                    <div class="api-endpoint">
+                        <strong>URL:</strong>
+                        POST http://127.0.0.1:5002/api/detect
+                    </div>
+                    
+                    <h3 style="margin-top: 20px;">Parameters</h3>
+                    <ul class="feature-list">
+                        <li><strong>image</strong> (required): Image file (JPEG, PNG, etc.)</li>
+                    </ul>
+                    
+                    <h3 style="margin-top: 20px;">Usage Examples</h3>
+                    
+                    <strong>cURL:</strong>
+                    <div class="code-block"><code>curl -F "image=@image.jpg" \
+  http://127.0.0.1:5002/api/detect</code></div>
+                    
+                    <strong>Python:</strong>
+                    <div class="code-block"><code>import requests
+
+with open('image.jpg', 'rb') as f:
+    resp = requests.post(
+        'http://127.0.0.1:5002/api/detect',
+        files={'image': f}
+    )
+    data = resp.json()
+    print(f"Products: {data['product_count']}")</code></div>
+                    
+                    <strong>JavaScript:</strong>
+                    <div class="code-block"><code>const formData = new FormData();
+formData.append('image', imageFile);
+
+fetch('http://127.0.0.1:5002/api/detect', {
+    method: 'POST',
+    body: formData
+})
+.then(r => r.json())
+.then(data => {
+    console.log(`Found: ${data.product_count} products`);
+    console.log(data.detections);
+});</code></div>
+                </div>
+            </div>
+            
+            <!-- Response Format -->
+            <div class="card">
+                <h2>📦 Response Format</h2>
+                
+                <div class="section">
+                    <h3>Success Response</h3>
+                    <div class="status">✓ HTTP 200 - Detection successful</div>
+                    <div class="response-example">
+                        <pre>{
+  "success": true,
+  "product_count": 2,
+  "detections": [
+    {
+      "id": 0,
+      "confidence": 0.95,
+      "box": [100.5, 200.3, 50.2, 75.1]
+    },
+    {
+      "id": 1,
+      "confidence": 0.87,
+      "box": [300.2, 150.4, 55.0, 80.0]
+    }
+  ],
+  "image_size": [2268, 4032],
+  "message": "Detected 2 product(s)"
+}</pre>
+                    </div>
+                    
+                    <h3>Response Fields</h3>
+                    <ul class="feature-list">
+                        <li><strong>success</strong>: Detection succeeded (boolean)</li>
+                        <li><strong>product_count</strong>: Number of products found (integer)</li>
+                        <li><strong>detections</strong>: Array of detected products</li>
+                        <li><strong>image_size</strong>: [width, height] of input image</li>
+                        <li><strong>message</strong>: Human-readable status</li>
+                    </ul>
+                    
+                    <h3 style="margin-top: 20px;">Detection Object</h3>
+                    <ul class="feature-list">
+                        <li><strong>id</strong>: Detection index (0-based)</li>
+                        <li><strong>confidence</strong>: Confidence score (0.0 - 1.0)</li>
+                        <li><strong>box</strong>: [x, y, width, height] in pixels</li>
+                    </ul>
+                    
+                    <h3 style="margin-top: 20px;">Error Response</h3>
+                    <div class="status error">✗ Various error codes</div>
+                    <div class="response-example">
+                        <pre>{
+  "success": false,
+  "product_count": 0,
+  "detections": [],
+  "error": "Model not found. Please train first."
+}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Test Section -->
+        <div class="card">
+            <h2>🧪 Test Detection</h2>
+            
+            <div class="section">
+                <h3>Upload Image</h3>
+                <input type="file" id="imageInput" accept="image/*" style="margin: 10px 0; padding: 10px;">
+                
+                <div class="button-group">
+                    <button class="secondary" onclick="testDetection()">Run Detection</button>
+                    <button onclick="document.getElementById('imageInput').value = ''">Clear</button>
+                </div>
+                
+                <div id="testResult"></div>
+            </div>
+        </div>
+        
+        <!-- Features -->
+        <div class="card">
+            <h2>✨ Features</h2>
+            
+            <div class="grid-2">
+                <div class="section">
+                    <h3>Capabilities</h3>
+                    <ul class="feature-list">
+                        <li>Detects products in images</li>
+                        <li>Returns product count</li>
+                        <li>Provides bounding boxes</li>
+                        <li>Confidence scores</li>
+                        <li>Fast inference</li>
+                    </ul>
+                </div>
+                
+                <div class="section">
+                    <h3>Requirements</h3>
+                    <ul class="feature-list">
+                        <li>Model must be trained first</li>
+                        <li>Model file: scan_models/scan_model.pt</li>
+                        <li>Image format: JPEG, PNG</li>
+                        <li>Flask server running</li>
+                        <li>Python 3.8+</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div class="section" style="margin-top: 20px;">
+                <h3>Getting Started</h3>
+                <ol style="margin-left: 20px; color: #666; line-height: 1.8;">
+                    <li>Start Flask app: <code style="background: #f5f5f5; padding: 3px 8px; border-radius: 3px;">python image_model_app.py</code></li>
+                    <li>Train model at: <code style="background: #f5f5f5; padding: 3px 8px; border-radius: 3px;">http://127.0.0.1:5002</code></li>
+                    <li>Create <code style="background: #f5f5f5; padding: 3px 8px; border-radius: 3px;">scan_models/scan_model.pt</code></li>
+                    <li>Use /api/detect endpoint for detection</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        async function testDetection() {
+            const fileInput = document.getElementById('imageInput');
+            const resultDiv = document.getElementById('testResult');
+            
+            if (!fileInput.files || fileInput.files.length === 0) {
+                resultDiv.innerHTML = '<div class="status error">Please select an image file</div>';
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('image', fileInput.files[0]);
+            
+            try {
+                resultDiv.innerHTML = '<div class="status">🔄 Processing...</div>';
+                
+                const response = await fetch('/api/detect', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const html = `
+                        <div class="status">
+                            ✓ Detection successful!<br>
+                            <strong>${data.product_count} product(s) detected</strong><br>
+                            Image size: ${data.image_size[0]}x${data.image_size[1]}
+                        </div>
+                        <h3>JSON Response:</h3>
+                        <div class="response-example">
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                    resultDiv.innerHTML = html;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="status error">
+                            Error: ${data.error || 'Unknown error'}
+                        </div>
+                        <h3>JSON Response:</h3>
+                        <div class="response-example">
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `
+                    <div class="status error">
+                        Request failed: ${error.message}
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
