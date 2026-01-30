@@ -66,7 +66,6 @@ class Tuner:
 
         LOGGER.info(
             f"{self.prefix}Initialized Tuner instance with 'tune_dir={self.tune_dir}'\n"
-            f"{self.prefix}💡 Learn about tuning at https://docs.hyperimagedetect.com/guides/hyperparameter-tuning"
         )
 
     def _connect(self, uri: str = "mongodb+srv://username:password@cluster.mongodb.net/", max_retries: int = 3):
