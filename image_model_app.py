@@ -8,6 +8,7 @@ Flask app that serves inference and training endpoints.
 Run: python image_model_app.py
 """
 from flask import Flask, request, jsonify, send_from_directory, send_file, redirect
+from werkzeug.utils import secure_filename
 from pathlib import Path
 import threading
 import time
@@ -845,6 +846,87 @@ def get_images():
         return jsonify({'error': str(e)}), 500
 
 
+@APP.route('/api/upload-model', methods=['POST'])
+def upload_model():
+    """Handle YOLO model file uploads for fine-tuning."""
+    try:
+        # Check if file was provided
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        # Validate file extension
+        if not file.filename.endswith('.pt'):
+            return jsonify({'success': False, 'error': 'Only .pt files are allowed'}), 400
+        
+        # Create models directory if it doesn't exist
+        models_dir = PROJECT / 'uploaded_models'
+        models_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save the uploaded model
+        filename = secure_filename(file.filename)
+        filepath = models_dir / filename
+        file.save(str(filepath))
+        
+        # Get file size in MB
+        file_size_mb = filepath.stat().st_size / (1024 * 1024)
+        
+        return jsonify({
+            'success': True,
+            'filename': filename,
+            'model_path': str(filepath),
+            'size': f'{file_size_mb:.2f}',
+            'message': f'Model uploaded successfully: {filename}'
+        }), 200
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@APP.route('/api/upload-scan-model', methods=['POST'])
+def upload_scan_model():
+    """Handle scan model uploads - saves directly to scan_models/scan_model.pt"""
+    try:
+        # Check if file was provided
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        # Validate file extension
+        if not file.filename.endswith('.pt'):
+            return jsonify({'success': False, 'error': 'Only .pt files are allowed'}), 400
+        
+        # Create scan_models directory if it doesn't exist
+        scan_models_dir = PROJECT / 'scan_models'
+        scan_models_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save the file as scan_model.pt
+        filepath = scan_models_dir / 'scan_model.pt'
+        file.save(str(filepath))
+        
+        # Get file size in MB
+        file_size_mb = filepath.stat().st_size / (1024 * 1024)
+        
+        return jsonify({
+            'success': True,
+            'filename': 'scan_model.pt',
+            'filepath': str(filepath),
+            'size': f'{file_size_mb:.2f}',
+            'message': f'Scan model uploaded successfully: scan_model.pt ({file_size_mb:.2f} MB)'
+        }), 200
+    
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @APP.route('/train', methods=['GET', 'POST'])
 def training_endpoint():
     """Handle training requests.
@@ -865,7 +947,16 @@ def training_endpoint():
         batch = int(request.args.get('batch', 8))
         patience = int(request.args.get('patience', 100))
         device = request.args.get('device', '0')
+        model_path = request.args.get('model')  # Optional: uploaded model for fine-tuning
         train_mode = request.args.get('mode', 'start')  # 'start' or 'finetune'
+        
+        # If a model is provided, auto-set mode to finetune
+        if model_path:
+            train_mode = 'finetune'
+            # Validate the model file exists
+            model_file = Path(model_path)
+            if not model_file.exists():
+                return jsonify({'error': f'Model file not found: {model_path}', 'started': False}), 400
         
         # Validate parameters
         if epochs < 10 or epochs > 5000:
@@ -890,6 +981,8 @@ def training_endpoint():
         training_progress['patience'] = patience
         training_progress['mode'] = train_mode
         training_progress['device'] = device
+        if model_path:
+            training_progress['model_path'] = model_path
         
         # Start training in background thread
         thread = threading.Thread(
@@ -900,7 +993,8 @@ def training_endpoint():
         thread.start()
         
         mode_label = '♻️ Fine-tune' if train_mode == 'finetune' else '🆕 Train from Start'
-        description = f'{mode_label}: {epochs} epochs, {imgsz}px, batch {batch}, patience {patience}'
+        model_info = f' (using {Path(model_path).name})' if model_path else ''
+        description = f'{mode_label}: {epochs} epochs, {imgsz}px, batch {batch}, patience {patience}{model_info}'
         return jsonify({
             'started': True,
             'status': 'training',
@@ -913,7 +1007,8 @@ def training_endpoint():
                 'batch': batch,
                 'patience': patience,
                 'device': device,
-                'mode': train_mode
+                'mode': train_mode,
+                'model': model_path if model_path else None
             }
         }), 202
     
@@ -1870,6 +1965,107 @@ def scan_image_simple():
         }), 500
 
 
+@APP.route('/api/bulk-upload-skus', methods=['POST'])
+def bulk_upload_skus():
+    """Handle bulk SKU upload from ZIP file with structure: data/{SKU_NAME}/{images}"""
+    import zipfile
+    
+    try:
+        # Check if file was provided
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+        
+        # Validate file extension
+        if not file.filename.endswith('.zip'):
+            return jsonify({'success': False, 'error': 'Only .zip files are allowed'}), 400
+        
+        # Create openclip_dataset directory if it doesn't exist
+        dataset_dir = PROJECT / 'openclip_dataset'
+        dataset_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save uploaded zip temporarily
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp:
+            file.save(tmp.name)
+            tmp_path = Path(tmp.name)
+        
+        try:
+            # Extract and process zip
+            skus_imported = 0
+            total_images = 0
+            
+            with zipfile.ZipFile(tmp_path, 'r') as zip_ref:
+                # List all files in zip
+                files = zip_ref.namelist()
+                
+                # Group files by SKU folder
+                sku_files = {}
+                for file_path in files:
+                    # Expected structure: data/{SKU_NAME}/{image_files}
+                    parts = Path(file_path).parts
+                    
+                    if len(parts) >= 3 and parts[0] == 'data':
+                        sku_name = parts[1]
+                        file_name = parts[-1]
+                        
+                        # Skip if it's a folder or hidden file
+                        if not file_name or file_name.startswith('.'):
+                            continue
+                        
+                        # Check if it's an image file
+                        if file_name.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')):
+                            if sku_name not in sku_files:
+                                sku_files[sku_name] = []
+                            sku_files[sku_name].append({
+                                'zip_path': file_path,
+                                'file_name': file_name
+                            })
+                
+                # Create SKU folders and extract images
+                for sku_name, images in sku_files.items():
+                    sku_dir = dataset_dir / sku_name
+                    sku_dir.mkdir(parents=True, exist_ok=True)
+                    
+                    for img_info in images:
+                        try:
+                            # Extract image
+                            img_data = zip_ref.read(img_info['zip_path'])
+                            
+                            # Save image
+                            img_path = sku_dir / img_info['file_name']
+                            with open(img_path, 'wb') as f:
+                                f.write(img_data)
+                            
+                            total_images += 1
+                        except Exception as e:
+                            print(f"⚠️ Error extracting {img_info['file_name']}: {e}")
+                    
+                    if images:
+                        skus_imported += 1
+        
+        finally:
+            # Clean up temporary file
+            tmp_path.unlink(missing_ok=True)
+        
+        return jsonify({
+            'success': True,
+            'skus_imported': skus_imported,
+            'total_images': total_images,
+            'message': f'Successfully imported {skus_imported} SKU(s) with {total_images} image(s)',
+            'destination': str(dataset_dir)
+        }), 200
+    
+    except zipfile.BadZipFile:
+        return jsonify({'success': False, 'error': 'Invalid ZIP file format'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
 @APP.route('/api/dataset/skus', methods=['GET'])
 def get_dataset_skus():
     """Get list of all SKUs from openclip_dataset folder."""
@@ -2270,6 +2466,210 @@ def delete_sku_folder(sku_name):
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
+
+# ============================================================
+# MISSING ENDPOINTS FOR LABEL SYSTEM COMPATIBILITY
+# ============================================================
+
+@APP.route('/config', methods=['GET'])
+@safe_json
+def get_config():
+    """Get configuration including class names."""
+    config_file = PROJECT / 'hyperimagedetect' / 'cfg' / 'default.yaml'
+    try:
+        import yaml
+        if config_file.exists():
+            with open(config_file, 'r') as f:
+                cfg = yaml.safe_load(f)
+                names = cfg.get('names', {})
+                # Convert to list format
+                if isinstance(names, dict):
+                    names_list = [names.get(str(i), f'class{i}') for i in range(len(names))]
+                else:
+                    names_list = names if isinstance(names, list) else []
+                return jsonify({'names': names_list}), 200
+    except Exception as e:
+        print(f"Error loading config: {e}")
+    
+    # Return default class names
+    return jsonify({'names': ['product']}), 200
+
+
+@APP.route('/dataset-info', methods=['GET'])
+@safe_json
+def get_dataset_info():
+    """Get dataset information including class statistics."""
+    try:
+        # Get all images
+        images = []
+        classes = {}
+        
+        if UPLOAD_IMAGES.exists():
+            valid_extensions = {'.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG'}
+            for img_file in UPLOAD_IMAGES.iterdir():
+                if img_file.is_file() and img_file.suffix.lower() in valid_extensions:
+                    images.append(img_file.name)
+        
+        # Try to read labels to get class info
+        if UPLOAD_LABELS.exists():
+            for label_file in UPLOAD_LABELS.glob('*.txt'):
+                try:
+                    with open(label_file, 'r') as f:
+                        for line in f:
+                            parts = line.strip().split()
+                            if parts:
+                                class_id = int(parts[0])
+                                if class_id not in classes:
+                                    classes[class_id] = {'count': 0, 'name': f'class{class_id}'}
+                                classes[class_id]['count'] += 1
+                except Exception:
+                    pass
+        
+        # If no classes found, return default
+        if not classes:
+            classes = {0: {'name': 'product', 'count': len(images)}}
+        
+        return jsonify({
+            'classes': classes,
+            'images': images,
+            'total': len(images)
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================================
+# RAW DATASET IMAGE MANAGEMENT (for labeling)
+# ============================================================
+
+@APP.route('/api/dataset/raw-images', methods=['GET'])
+@safe_json
+def get_raw_images():
+    """List all raw images in dataset/images/ folder."""
+    if not UPLOAD_IMAGES.exists():
+        UPLOAD_IMAGES.mkdir(parents=True, exist_ok=True)
+    
+    images = []
+    valid_extensions = {'.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG'}
+    
+    try:
+        for img_file in sorted(UPLOAD_IMAGES.iterdir()):
+            if img_file.is_file() and img_file.suffix.lower() in valid_extensions:
+                images.append({
+                    'name': img_file.name,
+                    'url': f'/uploads/image/{img_file.name}',
+                    'path': str(img_file),
+                    'size': img_file.stat().st_size
+                })
+        
+        return jsonify({
+            'ok': True,
+            'images': images,
+            'count': len(images),
+            'location': str(UPLOAD_IMAGES)
+        }), 200
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@APP.route('/api/dataset/raw-upload', methods=['POST'])
+@safe_json
+def upload_raw_images():
+    """Upload raw images to dataset/images/ folder."""
+    UPLOAD_IMAGES.mkdir(parents=True, exist_ok=True)
+    
+    if 'files' not in request.files:
+        return jsonify({'ok': False, 'error': 'No files provided'}), 400
+    
+    uploaded = []
+    
+    try:
+        files = request.files.getlist('files')
+        
+        for file in files:
+            if file.filename == '':
+                continue
+            
+            # Save file to dataset/images/
+            filename = file.filename
+            file_path = UPLOAD_IMAGES / filename
+            file.save(str(file_path))
+            uploaded.append(filename)
+        
+        return jsonify({
+            'ok': True,
+            'message': f'Uploaded {len(uploaded)} image(s)',
+            'count': len(uploaded),
+            'files': uploaded
+        }), 200
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@APP.route('/api/dataset/raw-delete', methods=['DELETE'])
+@safe_json
+def delete_raw_image():
+    """Delete a raw image from dataset/images/ folder."""
+    data = request.get_json()
+    image_name = data.get('image_name') if data else None
+    
+    if not image_name:
+        return jsonify({'ok': False, 'error': 'No image_name provided'}), 400
+    
+    # Security: prevent directory traversal
+    if '..' in image_name or '/' in image_name or '\\' in image_name:
+        return jsonify({'ok': False, 'error': 'Invalid image_name'}), 400
+    
+    image_path = UPLOAD_IMAGES / image_name
+    
+    if not image_path.exists():
+        return jsonify({'ok': False, 'error': 'Image not found'}), 404
+    
+    try:
+        image_path.unlink()  # Delete file
+        return jsonify({
+            'ok': True,
+            'message': f'Deleted {image_name}',
+            'deleted': image_name
+        }), 200
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@APP.route('/delete_image', methods=['POST'])
+@safe_json
+def delete_image():
+    """Delete image from dataset/images/ folder."""
+    data = request.get_json()
+    image_name = data.get('image') if data else None
+    
+    if not image_name:
+        return jsonify({'error': 'No image name provided'}), 400
+    
+    # Security: prevent directory traversal
+    if '..' in image_name or '/' in image_name or '\\' in image_name:
+        return jsonify({'error': 'Invalid image name'}), 400
+    
+    image_path = UPLOAD_IMAGES / image_name
+    
+    if not image_path.exists():
+        return jsonify({'error': 'Image not found'}), 404
+    
+    try:
+        image_path.unlink()  # Delete file
+        
+        # Also try to delete corresponding label if it exists
+        label_stem = image_name.rsplit('.', 1)[0]
+        label_path = UPLOAD_LABELS / f'{label_stem}.txt'
+        if label_path.exists():
+            label_path.unlink()
+        
+        return jsonify({
+            'deleted_image': image_name,
+            'message': f'Deleted {image_name}'
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':

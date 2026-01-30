@@ -19,6 +19,301 @@ function clamp(value, min_val = 0, max_val = 1) {
   return Math.max(min_val, Math.min(max_val, value));
 }
 
+// ============================================================
+// DATASET MANAGER - RAW IMAGE MANAGEMENT
+// ============================================================
+
+async function loadDatasetImages() {
+  try {
+    out('datasetOut', '⏳ Loading raw images from dataset/images/...');
+    
+    const r = await fetch('/api/dataset/raw-images');
+    const data = await r.json();
+    
+    if (!data.ok) {
+      out('datasetOut', '❌ Error: ' + (data.error || 'Failed to load images'));
+      return;
+    }
+    
+    const images = data.images || [];
+    
+    // Build file explorer tree
+    buildDatasetFileExplorer(images);
+    
+    // Populate image grid
+    populateDatasetImageGrid(images);
+    
+    // Update total count
+    document.getElementById('datasetTotalImages').textContent = images.length;
+    
+    out('datasetOut', `✅ Loaded ${images.length} raw image(s) from dataset/images/`);
+    
+  } catch (e) {
+    out('datasetOut', '❌ Error: ' + e.message);
+  }
+}
+
+function buildDatasetFileExplorer(images) {
+  const treeContainer = document.getElementById('datasetFileExplorer');
+  if (!treeContainer) return;
+  
+  if (images.length === 0) {
+    treeContainer.innerHTML = '<div style="padding:10px; text-align:center; color:#999; font-size:11px;">No files uploaded</div>';
+    document.getElementById('datasetFilesCount').textContent = '0';
+    return;
+  }
+  
+  // Group images by file extension
+  const byExt = {};
+  images.forEach(img => {
+    const ext = img.name.split('.').pop().toUpperCase();
+    if (!byExt[ext]) byExt[ext] = [];
+    byExt[ext].push(img);
+  });
+  
+  let html = '';
+  const extensions = Object.keys(byExt).sort();
+  
+  extensions.forEach(ext => {
+    const files = byExt[ext];
+    html += `<div style="margin-bottom:8px;">
+      <div onclick="toggleDatasetFileGroup(this)" style="cursor:pointer; padding:8px; background:#e8f4f8; border-radius:4px; font-weight:bold; font-size:12px; display:flex; align-items:center; gap:6px; user-select:none; transition:background 0.2s;" onmouseover="this.style.background='#d0e8f2'" onmouseout="this.style.background='#e8f4f8'">
+        <span style="font-size:14px;">▼</span>
+        <span>${ext}</span>
+        <span style="color:#999; font-size:10px;">(${files.length})</span>
+      </div>
+      <div style="padding-left:12px; margin-top:4px; display:block;">`;
+    
+    files.forEach((img, idx) => {
+      html += `<div onclick="selectDatasetFileFromExplorer('${img.name}')" style="cursor:pointer; padding:6px 8px; margin:3px 0; border-radius:3px; font-size:11px; background:white; border:1px solid #ddd; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; transition:all 0.2s;" onmouseover="this.style.background='#0dcaf0'; this.style.color='white'; this.style.fontWeight='bold';" onmouseout="this.style.background='white'; this.style.color='#333'; this.style.fontWeight='normal';">
+        📄 ${img.name}
+      </div>`;
+    });
+    
+    html += `</div></div>`;
+  });
+  
+  treeContainer.innerHTML = html;
+  document.getElementById('datasetFilesCount').textContent = images.length;
+}
+
+function toggleDatasetFileGroup(element) {
+  const group = element.nextElementSibling;
+  if (group) {
+    const isOpen = group.style.display !== 'none';
+    group.style.display = isOpen ? 'none' : 'block';
+    const arrow = element.querySelector('span:first-child');
+    if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
+  }
+}
+
+function selectDatasetFileFromExplorer(imageName) {
+  // Find and highlight image in grid
+  const imageCards = document.querySelectorAll('#datasetImageGrid div[data-image-name]');
+  imageCards.forEach(card => {
+    if (card.getAttribute('data-image-name') === imageName) {
+      card.style.border = '3px solid #0dcaf0';
+      card.style.boxShadow = '0 0 12px rgba(13,202,240,0.6)';
+      card.style.transform = 'scale(1.05)';
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else {
+      card.style.border = '2px solid #ddd';
+      card.style.boxShadow = 'none';
+      card.style.transform = 'scale(1)';
+    }
+  });
+}
+
+function populateDatasetImageGrid(images) {
+  const gridContainer = document.getElementById('datasetImageGrid');
+  gridContainer.innerHTML = '';
+  
+  if (images.length === 0) {
+    gridContainer.innerHTML = '<div style="grid-column:1/-1; padding:40px; text-align:center; color:#999; font-size:13px;">📁 No images uploaded yet. Use the upload button to add images.</div>';
+    return;
+  }
+  
+  images.forEach(img => {
+    const imgCard = document.createElement('div');
+    imgCard.setAttribute('data-image-name', img.name);
+    imgCard.style.cssText = 'border:2px solid #ddd; border-radius:8px; overflow:hidden; background:#f9f9f9; transition:all 0.3s; cursor:pointer; display:flex; flex-direction:column;';
+    imgCard.onmouseover = () => {
+      imgCard.style.boxShadow = '0 6px 16px rgba(13,202,240,0.4)';
+      imgCard.style.transform = 'translateY(-4px)';
+    };
+    imgCard.onmouseout = () => {
+      imgCard.style.boxShadow = 'none';
+      imgCard.style.transform = 'translateY(0)';
+    };
+    
+    const imgElement = document.createElement('img');
+    imgElement.src = img.url || img.path;
+    imgElement.style.cssText = 'width:100%; height:120px; object-fit:cover; cursor:pointer; background:#e0e0e0;';
+    imgElement.onclick = () => previewDatasetImage(img.url || img.path, img.name);
+    imgElement.onerror = () => {
+      imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150"%3E%3Crect fill="%23ddd" width="200" height="150"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999" font-size="14"%3E❌ Error%3C/text%3E%3C/svg%3E';
+    };
+    
+    const nameDiv = document.createElement('div');
+    nameDiv.style.cssText = 'padding:8px; font-size:11px; font-weight:bold; color:#333; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1;';
+    nameDiv.textContent = img.name;
+    nameDiv.title = img.name;
+    
+    const buttonDiv = document.createElement('div');
+    buttonDiv.style.cssText = 'padding:6px; display:flex; gap:4px; background:#f0f0f0;';
+    
+    const previewBtn = document.createElement('button');
+    previewBtn.textContent = '👁 Preview';
+    previewBtn.style.cssText = 'flex:1; padding:6px; background:#0dcaf0; color:white; border:none; border-radius:3px; cursor:pointer; font-size:10px; font-weight:bold; transition:background 0.2s;';
+    previewBtn.title = 'Preview image';
+    previewBtn.onmouseover = () => previewBtn.style.background = '#0ab8e6';
+    previewBtn.onmouseout = () => previewBtn.style.background = '#0dcaf0';
+    previewBtn.onclick = (e) => {
+      e.stopPropagation();
+      previewDatasetImage(img.url || img.path, img.name);
+    };
+    
+    const deleteBtn = document.createElement('button');
+    deleteBtn.textContent = '🗑 Delete';
+    deleteBtn.style.cssText = 'flex:1; padding:6px; background:#dc3545; color:white; border:none; border-radius:3px; cursor:pointer; font-size:10px; font-weight:bold; transition:background 0.2s;';
+    deleteBtn.title = 'Delete image';
+    deleteBtn.onmouseover = () => deleteBtn.style.background = '#c82333';
+    deleteBtn.onmouseout = () => deleteBtn.style.background = '#dc3545';
+    deleteBtn.onclick = (e) => {
+      e.stopPropagation();
+      deleteDatasetImage(img.name);
+    };
+    
+    buttonDiv.appendChild(previewBtn);
+    buttonDiv.appendChild(deleteBtn);
+    imgCard.appendChild(imgElement);
+    imgCard.appendChild(nameDiv);
+    imgCard.appendChild(buttonDiv);
+    gridContainer.appendChild(imgCard);
+  });
+}
+
+function previewDatasetImage(imagePath, imageName) {
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:flex; align-items:center; justify-content:center; z-index:6000;';
+  
+  const container = document.createElement('div');
+  container.style.cssText = 'background:white; padding:20px; border-radius:12px; max-width:90vw; max-height:90vh; overflow:auto; position:relative; box-shadow:0 10px 40px rgba(0,0,0,0.3);';
+  
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕';
+  closeBtn.style.cssText = 'position:absolute; top:10px; right:10px; background:#dc3545; color:white; border:none; border-radius:50%; width:40px; height:40px; font-size:24px; cursor:pointer; font-weight:bold; transition:background 0.2s;';
+  closeBtn.onmouseover = () => closeBtn.style.background = '#c82333';
+  closeBtn.onmouseout = () => closeBtn.style.background = '#dc3545';
+  closeBtn.onclick = () => modal.remove();
+  
+  const img = document.createElement('img');
+  img.src = imagePath;
+  img.style.cssText = 'max-width:100%; max-height:80vh; border:2px solid #ddd; border-radius:8px; display:block; margin:0 auto;';
+  
+  const title = document.createElement('h3');
+  title.textContent = imageName;
+  title.style.cssText = 'margin:0 0 10px 0; color:#333; text-align:center;';
+  
+  container.appendChild(closeBtn);
+  container.appendChild(title);
+  container.appendChild(img);
+  modal.appendChild(container);
+  document.body.appendChild(modal);
+  
+  modal.onclick = (e) => {
+    if (e.target === modal) modal.remove();
+  };
+}
+
+function searchDatasetImages() {
+  const searchTerm = document.getElementById('datasetSearchInput').value.toLowerCase().trim();
+  
+  if (!window.currentDatasetImages) return;
+  
+  const filtered = window.currentDatasetImages.filter(img => 
+    img.name.toLowerCase().includes(searchTerm)
+  );
+  
+  populateDatasetImageGrid(filtered);
+}
+
+function clearDatasetSearch() {
+  document.getElementById('datasetSearchInput').value = '';
+  searchDatasetImages();
+}
+
+async function uploadDatasetImages() {
+  const fileInput = document.getElementById('datasetUploadInput');
+  const files = fileInput.files;
+  
+  if (files.length === 0) {
+    alert('⚠️ Please select images to upload');
+    return;
+  }
+  
+  try {
+    out('datasetOut', `⏳ Uploading ${files.length} image(s) to dataset/images/...`);
+    
+    const formData = new FormData();
+    for (let file of files) {
+      formData.append('files', file);
+    }
+    
+    // Show progress bar
+    document.getElementById('datasetUploadProgress').style.display = 'block';
+    const progressFill = document.querySelector('#datasetUploadProgress > div');
+    
+    const r = await fetch('/api/dataset/raw-upload', {
+      method: 'POST',
+      body: formData
+    });
+    
+    const data = await r.json();
+    
+    if (data.ok) {
+      progressFill.style.width = '100%';
+      out('datasetOut', `✅ Uploaded ${data.count} image(s) to dataset/images/`);
+      
+      fileInput.value = '';
+      
+      setTimeout(() => {
+        document.getElementById('datasetUploadProgress').style.display = 'none';
+        loadDatasetImages();
+      }, 500);
+    } else {
+      out('datasetOut', '❌ Error: ' + (data.error || 'Upload failed'));
+      document.getElementById('datasetUploadProgress').style.display = 'none';
+    }
+  } catch (e) {
+    out('datasetOut', '❌ Error: ' + e.message);
+    document.getElementById('datasetUploadProgress').style.display = 'none';
+  }
+}
+
+async function deleteDatasetImage(imageName) {
+  if (!confirm(`Delete raw image: ${imageName}?`)) return;
+  
+  try {
+    const r = await fetch('/api/dataset/raw-delete', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_name: imageName })
+    });
+    
+    const data = await r.json();
+    
+    if (data.ok || r.ok) {
+      out('datasetOut', `✅ Deleted: ${imageName}`);
+      loadDatasetImages();
+    } else {
+      alert('❌ Error: ' + (data.error || 'Failed to delete'));
+    }
+  } catch (e) {
+    alert('❌ Error: ' + e.message);
+  }
+}
+
 function round6decimal(value) {
   return Math.round(value * 1000000) / 1000000;
 }
@@ -1890,8 +2185,8 @@ async function startTrain() {
     
     if (j.started) {
       status.className = 'status ok';
-      status.textContent = `✅ ${modeLabel} training started!`;
-      out('trainOut', `${modeLabel} training started\n${j.description}\n\n${JSON.stringify(j, null, 2)}`);
+      status.textContent = `✅ Training started!`;
+      out('trainOut', `Training started\n${j.description}\n\n${JSON.stringify(j, null, 2)}`);
       startMonitoringTrain();
     } else {
       status.className = 'status error';
@@ -1915,6 +2210,153 @@ function startMonitoringTrain() {
     }, 3000);
   }
   out('trainOut', '⏳ Training started in background...\n(progress monitoring disabled)');
+}
+
+// Scan Model Upload Functions
+async function handleScanModelUpload() {
+  const fileInput = document.getElementById('scanModelUploadInput');
+  const file = fileInput.files[0];
+  
+  if (!file) return;
+  
+  if (!file.name.endsWith('.pt')) {
+    alert('⚠️ Please select a .pt file (YOLO model)');
+    fileInput.value = '';
+    return;
+  }
+  
+  try {
+    out('trainOut', `⏳ Uploading scan model: ${file.name} (${(file.size / (1024*1024)).toFixed(2)} MB)...`);
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Show progress
+    document.getElementById('scanModelUploadProgress').style.display = 'block';
+    const progressBar = document.querySelector('#scanModelUploadProgressBar');
+    
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const percentComplete = (e.loaded / e.total) * 100;
+        progressBar.style.width = percentComplete + '%';
+      }
+    });
+    
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 200) {
+        const response = JSON.parse(xhr.responseText);
+        
+        if (response.success) {
+          document.getElementById('scanModelUploadStatus').innerHTML = 
+            `✅ Scan model ready: <strong>${response.filename}</strong><br><small style="color:#666;">${response.size} MB · ${response.filepath}</small>`;
+          out('trainOut', `✅ Scan model uploaded successfully: ${response.message}`);
+        } else {
+          throw new Error(response.error || 'Upload failed');
+        }
+      } else {
+        throw new Error(`Server error: ${xhr.status}`);
+      }
+      document.getElementById('scanModelUploadProgress').style.display = 'none';
+    });
+    
+    xhr.addEventListener('error', () => {
+      alert('❌ Upload error: ' + xhr.statusText);
+      document.getElementById('scanModelUploadProgress').style.display = 'none';
+    });
+    
+    xhr.open('POST', '/api/upload-scan-model');
+    xhr.send(formData);
+    
+  } catch (e) {
+    alert('❌ Error: ' + e.message);
+    document.getElementById('scanModelUploadProgress').style.display = 'none';
+  }
+}
+
+function clearScanModelUpload() {
+  document.getElementById('scanModelUploadInput').value = '';
+  document.getElementById('scanModelUploadStatus').textContent = 'No scan model uploaded yet';
+  out('trainOut', '🔄 Scan model upload cleared');
+}
+
+// SKU Bulk Upload Functions
+async function handleSkuBulkUpload() {
+  const fileInput = document.getElementById('skuBulkUploadInput');
+  const file = fileInput.files[0];
+  
+  if (!file) return;
+  
+  if (!file.name.endsWith('.zip')) {
+    alert('⚠️ Please select a .zip file');
+    fileInput.value = '';
+    return;
+  }
+  
+  try {
+    out('datasetOut', `⏳ Uploading SKU bulk data: ${file.name} (${(file.size / (1024*1024)).toFixed(2)} MB)...`);
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    // Show progress
+    document.getElementById('skuBulkUploadProgress').style.display = 'block';
+    const progressBar = document.querySelector('#skuBulkUploadProgressBar');
+    const messageDiv = document.getElementById('skuBulkUploadMessage');
+    
+    const xhr = new XMLHttpRequest();
+    
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) {
+        const percentComplete = (e.loaded / e.total) * 100;
+        progressBar.style.width = percentComplete + '%';
+        messageDiv.textContent = `Uploading... ${Math.round(percentComplete)}%`;
+      }
+    });
+    
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 200) {
+        const response = JSON.parse(xhr.responseText);
+        
+        if (response.success) {
+          messageDiv.textContent = `✅ Import complete: ${response.skus_imported} SKU(s), ${response.total_images} image(s) imported`;
+          document.getElementById('skuBulkUploadStatus').innerHTML = 
+            `✅ Data imported: <strong>${response.skus_imported} SKU(s)</strong> · ${response.total_images} images<br><small style="color:#666;">${response.message}</small>`;
+          out('datasetOut', `✅ ${response.message}`);
+          
+          // Refresh SKU list
+          setTimeout(() => {
+            loadDatasetView();
+            document.getElementById('skuBulkUploadProgress').style.display = 'none';
+          }, 1000);
+        } else {
+          throw new Error(response.error || 'Import failed');
+        }
+      } else {
+        throw new Error(`Server error: ${xhr.status}`);
+      }
+    });
+    
+    xhr.addEventListener('error', () => {
+      alert('❌ Upload error: ' + xhr.statusText);
+      document.getElementById('skuBulkUploadProgress').style.display = 'none';
+    });
+    
+    xhr.open('POST', '/api/bulk-upload-skus');
+    xhr.send(formData);
+    
+  } catch (e) {
+    alert('❌ Error: ' + e.message);
+    document.getElementById('skuBulkUploadProgress').style.display = 'none';
+  }
+}
+
+function clearSkuBulkUpload() {
+  document.getElementById('skuBulkUploadInput').value = '';
+  document.getElementById('skuBulkUploadStatus').textContent = 'No file selected';
+  document.getElementById('skuBulkUploadProgress').style.display = 'none';
+  out('datasetOut', '🔄 SKU bulk upload cleared');
 }
 
 // DATASET functions
@@ -2882,6 +3324,9 @@ function refreshSKUList() {
   const list = getSKUList();
   const display = document.getElementById('skuListDisplay');
   
+  // Skip if element doesn't exist (not used in current dashboard)
+  if (!display) return;
+  
   if (list.length === 0) {
     display.innerHTML = '<span style="color:#999; font-size:11px; padding:8px; text-align:center;">No SKUs added</span>';
   } else {
@@ -3382,11 +3827,22 @@ async function loadDatasetView() {
     // Populate SKU table
     populateSkuTable(skus);
     
-    // Update summary
+    // Update summary - check which IDs exist
     let totalImages = 0;
     skus.forEach(sku => totalImages += (sku.count || 0));
-    document.getElementById('summaryImages').textContent = totalImages;
-    document.getElementById('summarySkus').textContent = skus.length;
+    
+    // Try to update old summary elements (dataset tab)
+    if (document.getElementById('summaryImages')) {
+      document.getElementById('summaryImages').textContent = totalImages;
+    }
+    if (document.getElementById('summarySkus')) {
+      document.getElementById('summarySkus').textContent = skus.length;
+    }
+    
+    // Update SKU Manager stats (if in that tab)
+    if (document.getElementById('skuTotalCount')) {
+      document.getElementById('skuTotalCount').textContent = skus.length;
+    }
     
     out('datasetOut', `✅ Loaded ${skus.length} SKU(s) with ${totalImages} total image(s)`);
     
@@ -3500,42 +3956,174 @@ async function openSkuImagesModal(skuName) {
   }
 }
 
+// Build and display file explorer tree
+function buildFileExplorerTree(images) {
+  const treeContainer = document.getElementById('fileExplorerTree');
+  if (!treeContainer) return;
+  
+  if (images.length === 0) {
+    treeContainer.innerHTML = '<div style="padding:10px; text-align:center; color:#999; font-size:11px;">No files</div>';
+    document.getElementById('filesCount').textContent = '0';
+    return;
+  }
+  
+  // Group images by extension
+  const byExt = {};
+  images.forEach(img => {
+    const ext = img.name.split('.').pop().toUpperCase();
+    if (!byExt[ext]) byExt[ext] = [];
+    byExt[ext].push(img);
+  });
+  
+  let html = '';
+  const extensions = Object.keys(byExt).sort();
+  
+  extensions.forEach(ext => {
+    const files = byExt[ext];
+    html += `<div style="margin-bottom:8px;">
+      <div onclick="toggleFileGroup(this)" style="cursor:pointer; padding:6px; background:#e8f4f8; border-radius:4px; font-weight:bold; font-size:11px; display:flex; align-items:center; gap:6px; user-select:none;">
+        <span style="font-size:14px;">▼</span>
+        <span>${ext}</span>
+        <span style="color:#999; font-size:10px;">(${files.length})</span>
+      </div>
+      <div style="padding-left:12px; margin-top:4px; display:block;">`;
+    
+    files.forEach((img, idx) => {
+      html += `<div onclick="selectFileFromExplorer('${img.name}')" style="cursor:pointer; padding:4px 6px; margin:2px 0; border-radius:3px; font-size:11px; background:white; border:1px solid #ddd; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; transition:all 0.2s;" onmouseover="this.style.background='#0dcaf0'; this.style.color='white'; this.style.fontWeight='bold';" onmouseout="this.style.background='white'; this.style.color='#333'; this.style.fontWeight='normal';">
+        📄 ${img.name}
+      </div>`;
+    });
+    
+    html += `</div></div>`;
+  });
+  
+  treeContainer.innerHTML = html;
+  document.getElementById('filesCount').textContent = images.length;
+}
+
+// Toggle file group visibility
+function toggleFileGroup(element) {
+  const group = element.nextElementSibling;
+  if (group) {
+    const isOpen = group.style.display !== 'none';
+    group.style.display = isOpen ? 'none' : 'block';
+    const arrow = element.querySelector('span:first-child');
+    if (arrow) arrow.textContent = isOpen ? '▶' : '▼';
+  }
+}
+
+// Select file from explorer and highlight in grid
+function selectFileFromExplorer(imageName) {
+  // Find the image in the grid and highlight it
+  const imageCards = document.querySelectorAll('#imageGridContainer > div');
+  imageCards.forEach(card => {
+    const nameDiv = card.querySelector('div:nth-child(2)');
+    if (nameDiv && nameDiv.textContent === imageName) {
+      // Highlight this card
+      card.style.border = '3px solid #0dcaf0';
+      card.style.boxShadow = '0 0 12px rgba(13,202,240,0.6)';
+      card.style.transform = 'scale(1.05)';
+      card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      
+      // Remove highlight from others
+      imageCards.forEach(c => {
+        if (c !== card) {
+          c.style.border = '2px solid #ddd';
+          c.style.boxShadow = 'none';
+          c.style.transform = 'scale(1)';
+        }
+      });
+    }
+  });
+}
+
+// Preview image in full view (modal)
+function previewFullImage(imagePath, imageName) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); display:flex; align-items:center; justify-content:center; z-index:3001; cursor:pointer;';
+  overlay.onclick = () => overlay.remove();
+  
+  const container = document.createElement('div');
+  container.style.cssText = 'max-width:90%; max-height:90%; display:flex; flex-direction:column; background:white; border-radius:8px; overflow:hidden; box-shadow:0 4px 30px rgba(0,0,0,0.3);';
+  
+  const header = document.createElement('div');
+  header.style.cssText = 'padding:15px; background:#0dcaf0; color:white; font-weight:bold; display:flex; justify-content:space-between; align-items:center;';
+  header.innerHTML = `<span>👁 Preview: ${imageName}</span><button onclick="this.parentElement.parentElement.parentElement.remove()" style="padding:4px 12px; background:white; color:#0dcaf0; border:none; border-radius:3px; cursor:pointer; font-weight:bold;">✕ Close</button>`;
+  
+  const img = document.createElement('img');
+  img.src = imagePath;
+  img.style.cssText = 'max-width:100%; max-height:calc(90vh - 60px); object-fit:contain; padding:10px; background:#f9f9f9;';
+  
+  container.appendChild(header);
+  container.appendChild(img);
+  overlay.appendChild(container);
+  document.body.appendChild(overlay);
+}
+
 function populateImageGrid(images) {
   const gridContainer = document.getElementById('imageGridContainer');
   gridContainer.innerHTML = '';
   
   if (images.length === 0) {
     gridContainer.innerHTML = '<div style="grid-column:1/-1; padding:40px; text-align:center; color:#999;">No images found</div>';
+    buildFileExplorerTree([]);
     return;
   }
   
+  // Build file explorer tree
+  buildFileExplorerTree(images);
+  
+  // Update total images count
+  document.getElementById('totalImagesCount').textContent = images.length;
+  
   images.forEach(img => {
     const imgCard = document.createElement('div');
-    imgCard.style.cssText = 'border:2px solid #ddd; border-radius:8px; overflow:hidden; background:#f9f9f9; transition:all 0.2s; cursor:pointer;';
-    imgCard.onmouseover = () => imgCard.style.boxShadow = '0 4px 12px rgba(13,202,240,0.3)';
-    imgCard.onmouseout = () => imgCard.style.boxShadow = 'none';
+    imgCard.style.cssText = 'border:2px solid #ddd; border-radius:8px; overflow:hidden; background:#f9f9f9; transition:all 0.3s; cursor:pointer; display:flex; flex-direction:column;';
+    imgCard.onmouseover = () => {
+      imgCard.style.boxShadow = '0 6px 16px rgba(13,202,240,0.4)';
+      imgCard.style.transform = 'translateY(-4px)';
+    };
+    imgCard.onmouseout = () => {
+      imgCard.style.boxShadow = 'none';
+      imgCard.style.transform = 'translateY(0)';
+    };
     
     const imgElement = document.createElement('img');
     // Use url field from API response
     imgElement.src = img.url || img.path;
-    imgElement.style.cssText = 'width:100%; height:120px; object-fit:cover; cursor:pointer;';
+    imgElement.style.cssText = 'width:100%; height:100px; object-fit:cover; cursor:pointer; background:#e0e0e0;';
     imgElement.onclick = () => previewFullImage(img.url || img.path, img.name);
+    imgElement.onerror = () => {
+      imgElement.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 150"%3E%3Crect fill="%23ddd" width="200" height="150"/%3E%3Ctext x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%23999" font-size="14"%3E❌ Error%3C/text%3E%3C/svg%3E';
+    };
     
     const nameDiv = document.createElement('div');
-    nameDiv.style.cssText = 'padding:8px; font-size:11px; font-weight:bold; color:#333; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;';
+    nameDiv.style.cssText = 'padding:8px; font-size:11px; font-weight:bold; color:#333; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex:1;';
     nameDiv.textContent = img.name;
+    nameDiv.title = img.name;
     
     const buttonDiv = document.createElement('div');
-    buttonDiv.style.cssText = 'padding:6px; display:flex; gap:4px;';
+    buttonDiv.style.cssText = 'padding:6px; display:flex; gap:4px; background:#f0f0f0;';
+    
+    const previewBtn = document.createElement('button');
+    previewBtn.textContent = '👁';
+    previewBtn.style.cssText = 'flex:1; padding:5px; background:#0dcaf0; color:white; border:none; border-radius:3px; cursor:pointer; font-size:10px; font-weight:bold;';
+    previewBtn.title = 'Preview image';
+    previewBtn.onclick = (e) => {
+      e.stopPropagation();
+      previewFullImage(img.url || img.path, img.name);
+    };
     
     const deleteBtn = document.createElement('button');
-    deleteBtn.textContent = '🗑 Delete';
+    deleteBtn.textContent = '🗑';
     deleteBtn.style.cssText = 'flex:1; padding:5px; background:#dc3545; color:white; border:none; border-radius:3px; cursor:pointer; font-size:10px; font-weight:bold;';
+    deleteBtn.title = 'Delete image';
     deleteBtn.onclick = (e) => {
       e.stopPropagation();
       deleteImage(window.currentSkuName, img.name, () => openSkuImagesModal(window.currentSkuName));
     };
     
+    buttonDiv.appendChild(previewBtn);
     buttonDiv.appendChild(deleteBtn);
     imgCard.appendChild(imgElement);
     imgCard.appendChild(nameDiv);
@@ -3721,9 +4309,11 @@ async function loadDatasetSummary() {
       return;
     }
     
-    // Update summary stats
-    document.getElementById('summaryImages').textContent = data.images || 0;
-    document.getElementById('summarySkus').textContent = data.unique_skus || 0;
+    // Update summary stats (only if elements exist)
+    const summaryImages = document.getElementById('summaryImages');
+    const summarySkus = document.getElementById('summarySkus');
+    if (summaryImages) summaryImages.textContent = data.images || 0;
+    if (summarySkus) summarySkus.textContent = data.unique_skus || 0;
     
   } catch (e) {
     console.error('Error loading dataset summary:', e);
@@ -3745,6 +4335,11 @@ function switchTab(tabName) {
   // Load dataset view when switching to dataset tab
   if (tabName === 'dataset') {
     loadDatasetSummary();
+    setTimeout(() => loadDatasetView(), 100);
+  }
+  
+  // Load SKU Manager when switching to sku-manager tab
+  if (tabName === 'sku-manager') {
     setTimeout(() => loadDatasetView(), 100);
   }
   
