@@ -517,10 +517,246 @@ def torch_safe_load(weight, safe_only=False):
 
     return ckpt, file
 
+def _infer_model_scale_from_checkpoint(state_dict, task="detect"):
+    """Infer the model scale (n, s, m, l, x) from checkpoint state_dict shapes."""
+    if not state_dict:
+        return "m"  # Default to medium
+    
+    # Look for distinguishing features in layer 23 (detection head)
+    # Different scales have different channel counts
+    sample_keys = [
+        "model.23.cv3.2.1.1.conv.weight",  # Shape will be [channels, channels, 1, 1]
+        "model.24.cv2.2.1.1.conv.weight",  # Backup key
+    ]
+    
+    for key in sample_keys:
+        if key in state_dict:
+            shape = state_dict[key].shape
+            # shape[0] is output channels, shape[1] is input channels
+            output_ch = shape[0]
+            
+            # Map channel counts to model scales based on holo11.yaml scales
+            # n: [0.50, 0.25] -> base*0.25 = 64*0.25 = 16, 256*0.25 = 64
+            # s: [0.50, 0.50] -> base*0.50 = 64*0.50 = 32, 256*0.50 = 128
+            # m: [0.50, 1.00] -> base*1.00 = 64, 256*1.00 = 256
+            # l: [1.00, 1.00] -> base*1.00 = 64, 256*1.00 = 256
+            # x: [1.00, 1.50] -> base*1.50 = 96, 256*1.50 = 384
+            
+            scale_mapping = {
+                16: "n", 32: "n", 64: "n",    # nano range
+                64: "s", 80: "s", 128: "s",   # small range  
+                128: "m", 160: "m", 192: "m", 256: "m",  # medium range
+                256: "l", 320: "l",           # large range
+                384: "x", 400: "x", 512: "x", # xlarge range
+            }
+            
+            # Find exact or closest match
+            if output_ch in scale_mapping:
+                scale = scale_mapping[output_ch]
+                LOGGER.info(f"Inferred model scale '{scale}' from checkpoint (output channels: {output_ch})")
+                return scale
+            
+            # Find closest match
+            closest_scale = "m"
+            closest_diff = float("inf")
+            for ch, scale in scale_mapping.items():
+                diff = abs(output_ch - ch)
+                if diff < closest_diff:
+                    closest_diff = diff
+                    closest_scale = scale
+            
+            LOGGER.info(f"Inferred model scale '{closest_scale}' from checkpoint (output channels: {output_ch}, nearest: {closest_diff})")
+            return closest_scale
+    
+    LOGGER.debug("Could not infer model scale from checkpoint, using default 'm'")
+    return "m"
+
+def _try_load_with_scale(model_class, cfg_file, nc, state_dict, task="detect", inferred_scale="m"):
+    """Try loading state_dict with different model scales until shapes match."""
+    from hyperimagedetect.utils import ROOT, YAML
+    
+    # Load the base yaml
+    if isinstance(cfg_file, str):
+        cfg_file = Path(cfg_file)
+    
+    if not cfg_file.exists():
+        raise FileNotFoundError(f"Model config not found: {cfg_file}")
+    
+    # Load yaml
+    yaml_dict = YAML.load(str(cfg_file))
+    
+    scales = yaml_dict.get("scales", {})
+    if not scales:
+        # No scales defined, just create model with base yaml
+        LOGGER.warning("No model scales defined in yaml, using base configuration")
+        model = model_class(cfg=str(cfg_file), nc=nc, verbose=False)
+        return model
+    
+    # Try scales in order: inferred first, then largest to smallest
+    # (larger models are more likely to fit small weights, not vice versa)
+    scale_order = [inferred_scale]
+    for scale in ["x", "l", "m", "s", "n"]:
+        if scale not in scale_order and scale in scales:
+            scale_order.append(scale)
+    
+    errors = {}
+    best_model = None
+    best_match_count = -1
+    best_scale_used = None
+    
+    for scale in scale_order:
+        if scale not in scales:
+            continue
+            
+        try:
+            # Create model with this scale
+            scale_yaml = yaml_dict.copy()
+            scale_yaml["scale"] = scale
+            
+            model = model_class(cfg=scale_yaml, nc=nc, verbose=False)
+            
+            # Count matching parameter shapes
+            model_state = model.state_dict()
+            matches = 0
+            mismatches = 0
+            
+            for key in state_dict.keys():
+                if key in model_state:
+                    if state_dict[key].shape == model_state[key].shape:
+                        matches += 1
+                    else:
+                        mismatches += 1
+            
+            total = matches + mismatches
+            if total == 0:
+                continue
+                
+            match_ratio = matches / total
+            LOGGER.debug(f"Scale '{scale}': {matches}/{total} params match ({match_ratio:.1%})")
+            
+            # If this is the best match so far, save it
+            if matches > best_match_count:
+                best_match_count = matches
+                best_model = model
+                best_scale_used = scale
+                
+                # If we have perfect/near-perfect match (>95%), stop searching
+                if match_ratio > 0.95:
+                    LOGGER.info(f"Excellent match found with scale '{scale}' ({match_ratio:.1%})")
+                    break
+                    
+        except Exception as e:
+            errors[scale] = str(e)
+            LOGGER.debug(f"Failed to load scale '{scale}': {e}")
+            continue
+    
+    if best_model is None:
+        available_scales = [s for s in scale_order if s in scales]
+        raise RuntimeError(
+            f"Could not find matching model scale for checkpoint. "
+            f"Tried scales: {', '.join(available_scales)}. "
+            f"Errors: {errors}"
+        )
+    
+    match_ratio = best_match_count / (best_match_count + sum(
+        1 for key in state_dict.keys() 
+        if key in best_model.state_dict() and state_dict[key].shape != best_model.state_dict()[key].shape
+    ))
+    LOGGER.info(f"Using model scale '{best_scale_used}' with {best_match_count} matching parameters ({match_ratio:.1%})")
+    return best_model
+
 def load_checkpoint(weight, device=None, inplace=True, fuse=False):
     ckpt, weight = torch_safe_load(weight)
+    # Get training args with defaults
     args = {**DEFAULT_CFG_DICT, **(ckpt.get("train_args", {}))}
-    model = (ckpt.get("ema") or ckpt["model"]).float()
+    # If no train_args, try to populate from meta
+    if not ckpt.get("train_args"):
+        meta = ckpt.get("meta", {})
+        if meta:
+            args.update({
+                "task": meta.get("task", args.get("task", "detect")),
+                "nc": meta.get("nc", args.get("nc", 80)),
+                "imgsz": meta.get("imgsz", args.get("imgsz", 640)),
+            })
+    
+    ema_or_model = ckpt.get("ema") or ckpt["model"]
+    
+    # Handle case where checkpoint contains state_dict instead of model object
+    if isinstance(ema_or_model, dict):
+        LOGGER.warning(
+            f"Model in checkpoint '{weight}' is stored as state_dict (weights only). "
+            f"Attempting to reconstruct model architecture from metadata..."
+        )
+        # Extract architecture information from args/metadata
+        task = args.get("task", "detect")
+        nc = args.get("nc", 80)
+        
+        # Select appropriate model class based on task
+        model_map = {
+            "detect": DetectionModel,
+            "segment": SegmentationModel,
+            "pose": PoseModel,
+            "obb": OBBModel,
+            "classify": ClassificationModel,
+        }
+        model_class = model_map.get(task)
+        if not model_class:
+            raise ValueError(
+                f"Unknown task '{task}'. Cannot reconstruct model. "
+                f"Supported tasks: {', '.join(model_map.keys())}"
+            )
+        
+        try:
+            # Try to create model from args/yaml if available
+            cfg = args.get("cfg") or args.get("model")
+            if cfg:
+                model = model_class(cfg=cfg, nc=nc, verbose=False)
+                LOGGER.info(f"Using model configuration from checkpoint args: {cfg}")
+            else:
+                # Try to infer model scale from checkpoint weights
+                inferred_scale = _infer_model_scale_from_checkpoint(ema_or_model, task)
+                
+                # Try different model scales to find matching architecture
+                from hyperimagedetect.utils import ROOT
+                cfg_file = ROOT / "cfg" / "models" / "11" / "holo11.yaml"
+                if not cfg_file.exists():
+                    raise FileNotFoundError(f"Model config not found: {cfg_file}")
+                
+                LOGGER.info(f"Checkpoint config not found, attempting to match architecture with scale '{inferred_scale}'...")
+                model = _try_load_with_scale(
+                    model_class, 
+                    cfg_file, 
+                    nc, 
+                    ema_or_model,
+                    task=task,
+                    inferred_scale=inferred_scale
+                )
+            
+            # Load the state_dict into the reconstructed model
+            LOGGER.info(f"Loading state_dict into {task} model with {nc} classes")
+            incompatible_keys = model.load_state_dict(ema_or_model, strict=False)
+            
+            # Log any significant mismatches
+            if incompatible_keys.missing_keys:
+                missing_count = len(incompatible_keys.missing_keys)
+                if missing_count > 10:
+                    LOGGER.warning(f"Model has {missing_count} missing keys from checkpoint (may indicate model architecture mismatch)")
+            
+            if incompatible_keys.unexpected_keys:
+                unexpected_count = len(incompatible_keys.unexpected_keys)
+                if unexpected_count > 10:
+                    LOGGER.debug(f"Checkpoint has {unexpected_count} unexpected keys")
+            
+            model = model.float()
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to reconstruct model from state_dict checkpoint. "
+                f"Error: {str(e)}\n"
+                f"Solution: Please save the model using model.save('filename.pt') "
+                f"to create a properly formatted checkpoint with the full model object."
+            ) from e
+    else:
+        model = ema_or_model.float()
 
     model.args = args
     model.pt_path = weight

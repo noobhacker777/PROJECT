@@ -27,10 +27,39 @@ from hyperimagedetect.data.loaders import (
 from hyperimagedetect.data.utils import IMG_FORMATS
 from hyperimagedetect.utils import RANK, colorstr
 from hyperimagedetect.utils.checks import check_file
+from hyperimagedetect.utils.patches import imread
 from hyperimagedetect.utils.torch_utils import TORCH_2_0
 
 def LoadImagesAndVideos(source, batch=1, channels=3, **kwargs):
-    return LoadPilAndNumpy(source, channels=channels)
+    """Load images/videos from file paths and return a loader."""
+    # Convert source to Path if it's a string
+    if isinstance(source, (str, Path)):
+        source = Path(source)
+        
+        # Check if it's a single file
+        if source.is_file():
+            # Load single image file
+            img = imread(str(source))
+            return LoadPilAndNumpy(img, channels=channels)
+        elif source.is_dir():
+            # For directory, load first image found
+            import glob
+            
+            # Find first image in directory
+            img_files = []
+            for ext in IMG_FORMATS:
+                img_files.extend(glob.glob(str(source / f"*.{ext}")))
+            
+            if img_files:
+                img = imread(img_files[0])
+                return LoadPilAndNumpy(img, channels=channels)
+            else:
+                raise FileNotFoundError(f"No images found in directory: {source}")
+        else:
+            raise FileNotFoundError(f"File or directory not found: {source}")
+    else:
+        # If not a file path, assume it's already image data
+        return LoadPilAndNumpy(source, channels=channels)
 
 def LoadStreams(*args, **kwargs):
     raise RuntimeError("❌ VIDEO SUPPORT DISABLED: Only images are supported.")
