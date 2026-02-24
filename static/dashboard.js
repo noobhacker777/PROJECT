@@ -20,6 +20,176 @@ function clamp(value, min_val = 0, max_val = 1) {
 }
 
 // ============================================================
+// FAISS INDEX MANAGEMENT
+// ============================================================
+
+async function checkIndexStatus() {
+  try {
+    out('indexOut', '⏳ Checking index status...');
+    const response = await fetch('/api/index-status');
+    const data = await response.json();
+    
+    if (data.exists) {
+      document.getElementById('indexStatus').textContent = '✅ Ready';
+      document.getElementById('indexSkuCount').textContent = data.skus_count || '--';
+      document.getElementById('indexSize').textContent = (data.index_size_mb || '0') + ' MB';
+      out('indexOut', `✅ Index exists!\n📦 SKUs: ${data.skus_count}\n💾 Size: ${data.index_size_mb} MB\n📝 Message: ${data.message}`);
+    } else {
+      document.getElementById('indexStatus').textContent = '⚠️ Missing';
+      document.getElementById('indexSkuCount').textContent = '--';
+      document.getElementById('indexSize').textContent = '-- MB';
+      out('indexOut', `⚠️ No index file found\n💡 Click "Generate Index" to create one`);
+    }
+  } catch (e) {
+    out('indexOut', '❌ Error: ' + e.message);
+  }
+}
+
+async function generateFaissIndex() {
+  if (document.getElementById('generateIndexBtn').disabled) return;
+  
+  document.getElementById('generateIndexBtn').disabled = true;
+  document.getElementById('generateIndexBtn').style.opacity = '0.7';
+  document.getElementById('indexProgress').style.display = 'block';
+  out('indexOut', '⏳ Starting training... This will take 2-3 minutes');
+  
+  try {
+    const response = await fetch('/api/train-index', { method: 'POST' });
+    const data = await response.json();
+    
+    if (data.success) {
+      document.getElementById('indexStatus').textContent = '✅ Ready';
+      document.getElementById('indexSkuCount').textContent = data.skus_count || '--';
+      document.getElementById('indexSize').textContent = (data.index_size_mb || '0') + ' MB';
+      
+      let msg = `✅ Index training complete!\n\n📊 Details:\n`;
+      msg += `  SKUs: ${data.skus_count}\n`;
+      msg += `  Size: ${data.index_size_mb} MB\n`;
+      msg += `  Time: ${data.training_time_seconds}s\n`;
+      msg += `  Path: ${data.index_path}`;
+      out('indexOut', msg);
+    } else {
+      out('indexOut', '❌ Training failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (e) {
+    out('indexOut', '❌ Error: ' + e.message);
+  } finally {
+    document.getElementById('generateIndexBtn').disabled = false;
+    document.getElementById('generateIndexBtn').style.opacity = '1';
+    document.getElementById('indexProgress').style.display = 'none';
+  }
+}
+
+async function downloadIndexFile() {
+  try {
+    out('indexOut', '⏳ Preparing download...');
+    const response = await fetch('/api/download-index');
+    
+    if (!response.ok) {
+      const error = await response.json();
+      out('indexOut', '❌ Error: ' + (error.error || 'Download failed'));
+      return;
+    }
+    
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'faiss_index_backup.zip';
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    
+    out('indexOut', `✅ Download complete!\n📦 File: faiss_index_backup.zip`);
+  } catch (e) {
+    out('indexOut', '❌ Error: ' + e.message);
+  }
+}
+
+function openUploadIndexModal() {
+  document.getElementById('uploadIndexModal').style.display = 'flex';
+}
+
+function closeUploadIndexModal() {
+  document.getElementById('uploadIndexModal').style.display = 'none';
+  document.getElementById('uploadIndexFile').value = '';
+  document.getElementById('uploadMetadataFile').value = '';
+  document.getElementById('uploadIndexProgress').style.display = 'none';
+}
+
+async function performUploadIndex() {
+  const indexFile = document.getElementById('uploadIndexFile').files[0];
+  const metadataFile = document.getElementById('uploadMetadataFile').files[0];
+  
+  if (!indexFile || !metadataFile) {
+    alert('Please select both files');
+    return;
+  }
+  
+  document.getElementById('uploadIndexProgress').style.display = 'block';
+  document.getElementById('uploadIndexSubmitBtn').disabled = true;
+  out('indexOut', '⏳ Uploading index files...');
+  
+  try {
+    const formData = new FormData();
+    formData.append('index', indexFile);
+    formData.append('metadata', metadataFile);
+    
+    const response = await fetch('/api/upload-index', {
+      method: 'POST',
+      body: formData
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      document.getElementById('indexStatus').textContent = '✅ Ready';
+      document.getElementById('indexSkuCount').textContent = data.skus_count || '--';
+      document.getElementById('indexSize').textContent = (data.index_size_mb || '0') + ' MB';
+      
+      let msg = `✅ Index uploaded successfully!\n\n📊 Details:\n`;
+      msg += `  SKUs: ${data.skus_count}\n`;
+      msg += `  Size: ${data.index_size_mb} MB\n`;
+      msg += `  Path: ${data.index_path}`;
+      out('indexOut', msg);
+      
+      closeUploadIndexModal();
+    } else {
+      out('indexOut', '❌ Upload failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (e) {
+    out('indexOut', '❌ Error: ' + e.message);
+  } finally {
+    document.getElementById('uploadIndexProgress').style.display = 'none';
+    document.getElementById('uploadIndexSubmitBtn').disabled = false;
+  }
+}
+
+async function deleteIndexFile() {
+  if (!confirm('Are you sure you want to delete the cached index? It can be regenerated with "Generate Index".')) {
+    return;
+  }
+  
+  try {
+    out('indexOut', '⏳ Deleting index...');
+    const response = await fetch('/api/delete-index', { method: 'POST' });
+    const data = await response.json();
+    
+    if (data.success) {
+      document.getElementById('indexStatus').textContent = '⚠️ Deleted';
+      document.getElementById('indexSkuCount').textContent = '--';
+      document.getElementById('indexSize').textContent = '-- MB';
+      out('indexOut', `✅ Index deleted!\n📊 Deleted: ${data.deleted_files.length} file(s)`);
+    } else {
+      out('indexOut', '❌ Delete failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (e) {
+    out('indexOut', '❌ Error: ' + e.message);
+  }
+}
+
+// ============================================================
 // DATASET MANAGER - RAW IMAGE MANAGEMENT
 // ============================================================
 
@@ -422,6 +592,7 @@ function switchTab(tabName) {
   const tab = document.getElementById('tab-' + tabName);
   if (tab) tab.style.display = 'block';
   if (tabName === 'label') refreshLabelList();
+  if (tabName === 'index') checkIndexStatus();
 }
 
 // LABEL functions
@@ -4418,6 +4589,31 @@ function displayDetectionResults(data) {
   
   const skuMatches = data.sku_matches || {};
   document.getElementById('uniqueSkuCount').textContent = Object.keys(skuMatches).length;
+
+  // Show matching mode indicator
+  const matchingMode = data.matching_mode || 'none';
+  const modeDescription = data.mode_description || 'No SKU matching';
+  let modeBadgeColor = '#6c757d';
+  let modeIcon = 'ℹ️';
+  let modeBorderColor = '#6c757d';
+  
+  if (matchingMode === 'cached_index') {
+    modeBadgeColor = '#d4edda';
+    modeBorderColor = '#28a745';
+    modeIcon = '⚡';
+  } else if (matchingMode === 'raw_images') {
+    modeBadgeColor = '#fff3cd';
+    modeBorderColor = '#ffc107';
+    modeIcon = '📊';
+  }
+  
+  const modeIndicator = document.getElementById('matchingModeIndicator');
+  if (modeIndicator) {
+    modeIndicator.style.backgroundColor = modeBadgeColor;
+    modeIndicator.style.borderLeftColor = modeBorderColor;
+    document.getElementById('modeIcon').textContent = modeIcon;
+    document.getElementById('modeDescription').textContent = modeDescription;
+  }
 
   // Show uploaded image
   if (data.image_url) {

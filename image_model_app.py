@@ -33,11 +33,56 @@ APP = Flask(__name__, static_folder=str(PROJECT / 'static'), static_url_path='')
 SKU_EMBEDDINGS_CACHE = {}
 SKU_EMBEDDINGS_INITIALIZED = False
 MATCHER_INSTANCE = None
+HOLO_MODEL_CACHE = None  # Cache for scan_model.pt (loaded on startup)
+FAISS_INDEX_LOADED = False  # Track if FAISS index is cached
 _EMBEDDINGS_LOCK = threading.Lock()  # Thread-safe lock for SKU embeddings initialization
 
+def check_and_install_gpu_faiss():
+    """Check if FAISS has GPU support, install if needed."""
+    try:
+        import faiss
+        num_gpus = faiss.get_num_gpus()
+        
+        if num_gpus > 0:
+            print(f"[FAISS] ✓ GPU FAISS detected: {num_gpus} GPU(s) available")
+            return True
+        else:
+            print("[FAISS] ⚠ CPU-only FAISS detected, installing GPU version...")
+            import subprocess
+            import sys
+            
+            try:
+                # Try CUDA 12 first (most recent)
+                print("[FAISS] Installing faiss-gpu-cu12...")
+                subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "faiss-cpu", "faiss-gpu", "faiss-gpu-cu12"], 
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "-U", "faiss-gpu-cu12"],
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                # Re-import to verify
+                import importlib
+                importlib.reload(faiss)
+                num_gpus = faiss.get_num_gpus()
+                
+                if num_gpus > 0:
+                    print(f"[FAISS] ✓ GPU FAISS installed successfully: {num_gpus} GPU(s)")
+                    return True
+                else:
+                    print("[FAISS] Warning: GPU FAISS installed but no CUDA devices detected")
+                    return False
+                    
+            except Exception as e:
+                print(f"[FAISS] Error installing GPU FAISS: {e}")
+                print("[FAISS] Continuing with CPU FAISS...")
+                return False
+                
+    except ImportError:
+        print("[FAISS] FAISS not installed, skipping GPU check")
+        return False
+
 def initialize_sku_embeddings():
-    """Initialize SKU embeddings cache on first run (thread-safe)."""
-    global SKU_EMBEDDINGS_CACHE, SKU_EMBEDDINGS_INITIALIZED, MATCHER_INSTANCE
+    """Initialize SKU embeddings cache, FAISS index, and HOLO model on startup (thread-safe)."""
+    global SKU_EMBEDDINGS_CACHE, SKU_EMBEDDINGS_INITIALIZED, MATCHER_INSTANCE, HOLO_MODEL_CACHE, FAISS_INDEX_LOADED
     
     with _EMBEDDINGS_LOCK:
         # Double-check after acquiring lock
@@ -45,6 +90,9 @@ def initialize_sku_embeddings():
             return
         
         try:
+            # Ensure GPU FAISS is used if available
+            check_and_install_gpu_faiss()
+            
             print("[INIT] Loading SKU embeddings cache...")
             from sku_embeddings import SKUEmbeddingMatcher
             MATCHER_INSTANCE = SKUEmbeddingMatcher()
@@ -73,8 +121,38 @@ def initialize_sku_embeddings():
                                 SKU_EMBEDDINGS_CACHE[sku_name] = np.mean(np.array(embeddings_list), axis=0)
                                 print(f"[INIT] ✓ {sku_name} ready")
             
+            # Load FAISS index on startup (if exists)
+            MODEL_INDEX_PATH = PROJECT / 'scan_models' / 'scan_model.index'
+            if MODEL_INDEX_PATH.exists():
+                print("[INIT] Loading cached FAISS index...")
+                try:
+                    if MATCHER_INSTANCE.load_faiss_index(str(MODEL_INDEX_PATH)):
+                        FAISS_INDEX_LOADED = True
+                        print("[INIT] ✓ FAISS index loaded and cached")
+                    else:
+                        print("[INIT] Failed to load FAISS index")
+                except Exception as e:
+                    print(f"[INIT] Error loading FAISS index: {e}")
+            
+            # Load HOLO detection model on startup
+            print("[INIT] Loading HOLO detection model...")
+            try:
+                import torch
+                from hyperimagedetect import HOLO
+                scan_model_path = PROJECT / 'scan_models' / 'scan_model.pt'
+                
+                if scan_model_path.exists():
+                    HOLO_MODEL_CACHE = HOLO(str(scan_model_path))
+                    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+                    HOLO_MODEL_CACHE.to(device)
+                    print(f"[INIT] ✓ HOLO model loaded and cached (device: {device})")
+                else:
+                    print(f"[INIT] Warning: HOLO model not found at {scan_model_path}")
+            except Exception as e:
+                print(f"[INIT] Error loading HOLO model: {e}")
+            
             SKU_EMBEDDINGS_INITIALIZED = True
-            print("[INIT] SKU embeddings loaded!")
+            print("[INIT] All caches loaded successfully!")
         except Exception as e:
             print(f"[INIT] Error loading embeddings: {e}")
             import traceback
@@ -1365,6 +1443,364 @@ def delete_backup():
         return jsonify({'error': str(e)}), 500
 
 
+@APP.route('/api/train-index', methods=['POST'])
+def train_faiss_index():
+    """Train and save FAISS index from OpenCLIP dataset.
+    
+    One-button training to generate .index file for fast SKU matching.
+    Automatically saves to MODEL_INDEX_PATH.
+    
+    Returns:
+        {
+            "success": bool,
+            "message": string,
+            "skus_count": int,
+            "index_size_mb": float,
+            "index_path": string
+        }
+    """
+    try:
+        from sku_embeddings import SKUEmbeddingMatcher
+        import time
+        
+        MODEL_INDEX_PATH = PROJECT / 'scan_models' / 'scan_model.index'
+        openclip_dataset_dir = PROJECT / 'openclip_dataset'
+        
+        # Check if dataset exists
+        if not openclip_dataset_dir.exists():
+            return jsonify({
+                'success': False,
+                'error': f'Dataset directory not found: {openclip_dataset_dir}'
+            }), 400
+        
+        # Count SKUs
+        sku_folders = [d for d in openclip_dataset_dir.iterdir() if d.is_dir()]
+        if not sku_folders:
+            return jsonify({
+                'success': False,
+                'error': 'No SKU folders found in openclip_dataset'
+            }), 400
+        
+        print(f"[TRAIN] Starting FAISS index training with {len(sku_folders)} SKU(s)...")
+        start_time = time.time()
+        
+        # Initialize matcher
+        print("[TRAIN] Loading OpenCLIP model...")
+        matcher = SKUEmbeddingMatcher(model_name="ViT-B-32", pretrained="openai")
+        
+        # Generate embeddings
+        print("[TRAIN] Generating SKU embeddings...")
+        sku_embeddings = matcher.get_sku_embeddings_from_dataset(str(openclip_dataset_dir))
+        
+        if not sku_embeddings:
+            return jsonify({
+                'success': False,
+                'error': 'Failed to generate SKU embeddings'
+            }), 500
+        
+        # Build FAISS index
+        print(f"[TRAIN] Building FAISS index for {len(sku_embeddings)} SKUs...")
+        if not matcher.build_faiss_index(sku_embeddings):
+            return jsonify({
+                'success': False,
+                'error': 'Failed to build FAISS index'
+            }), 500
+        
+        # Save index
+        print(f"[TRAIN] Saving index to {MODEL_INDEX_PATH}...")
+        if not matcher.save_faiss_index(str(MODEL_INDEX_PATH)):
+            return jsonify({
+                'success': False,
+                'error': f'Failed to save index to {MODEL_INDEX_PATH}'
+            }), 500
+        
+        # Get file size
+        index_size_mb = os.path.getsize(MODEL_INDEX_PATH) / (1024 * 1024)
+        elapsed = time.time() - start_time
+        
+        print(f"[TRAIN] ✓ Index training complete! ({elapsed:.1f}s, {index_size_mb:.2f}MB)")
+        
+        return jsonify({
+            'success': True,
+            'message': f'FAISS index trained successfully',
+            'skus_count': len(sku_embeddings),
+            'index_size_mb': round(index_size_mb, 2),
+            'index_path': str(MODEL_INDEX_PATH),
+            'training_time_seconds': round(elapsed, 2)
+        }), 200
+        
+    except ImportError:
+        return jsonify({
+            'success': False,
+            'error': 'OpenCLIP not installed. Run: pip install open-clip-torch'
+        }), 500
+    except Exception as e:
+        print(f"[ERROR] Index training failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@APP.route('/api/upload-index', methods=['POST'])
+def upload_faiss_index():
+    """Upload a pre-trained FAISS index file.
+    
+    Uploads and saves a .index file for fast SKU matching without retraining.
+    Also requires the _metadata.json file.
+    
+    Files expected:
+    - index: The .index file (required)
+    - metadata: The _metadata.json file (required)
+    
+    Returns:
+        {
+            "success": bool,
+            "message": string,
+            "index_path": string,
+            "index_size_mb": float,
+            "skus_count": int
+        }
+    """
+    try:
+        import json as json_module
+        
+        MODEL_INDEX_PATH = PROJECT / 'scan_models' / 'scan_model.index'
+        MODEL_INDEX_DIR = MODEL_INDEX_PATH.parent
+        MODEL_INDEX_DIR.mkdir(parents=True, exist_ok=True)
+        
+        # Check for required files
+        if 'index' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No index file provided'
+            }), 400
+        
+        if 'metadata' not in request.files:
+            return jsonify({
+                'success': False,
+                'error': 'No metadata file provided'
+            }), 400
+        
+        index_file = request.files['index']
+        metadata_file = request.files['metadata']
+        
+        if index_file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'Index file is empty'
+            }), 400
+        
+        if metadata_file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'Metadata file is empty'
+            }), 400
+        
+        # Validate metadata format
+        try:
+            metadata_content = metadata_file.read()
+            metadata = json_module.loads(metadata_content)
+            if 'sku_list' not in metadata:
+                return jsonify({
+                    'success': False,
+                    'error': 'Invalid metadata: missing sku_list'
+                }), 400
+            skus_count = len(metadata.get('sku_list', []))
+            metadata_file.seek(0)  # Reset for saving
+        except json_module.JSONDecodeError:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid metadata JSON format'
+            }), 400
+        
+        # Save index file
+        index_file.save(str(MODEL_INDEX_PATH))
+        index_size_mb = os.path.getsize(MODEL_INDEX_PATH) / (1024 * 1024)
+        
+        # Save metadata file
+        metadata_path = str(MODEL_INDEX_PATH).replace('.index', '_metadata.json')
+        metadata_file.save(metadata_path)
+        
+        print(f"[UPLOAD] ✓ Index uploaded: {MODEL_INDEX_PATH} ({index_size_mb:.2f}MB, {skus_count} SKUs)")
+        
+        return jsonify({
+            'success': True,
+            'message': 'FAISS index uploaded successfully',
+            'index_path': str(MODEL_INDEX_PATH),
+            'index_size_mb': round(index_size_mb, 2),
+            'skus_count': skus_count
+        }), 200
+        
+    except Exception as e:
+        print(f"[ERROR] Index upload failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@APP.route('/api/index-status', methods=['GET'])
+def index_status():
+    """Check if FAISS index file exists and get its details.
+    
+    Returns:
+        {
+            "exists": bool,
+            "index_path": string,
+            "index_size_mb": float,
+            "skus_count": int,
+            "message": string
+        }
+    """
+    try:
+        import json as json_module
+        
+        MODEL_INDEX_PATH = PROJECT / 'scan_models' / 'scan_model.index'
+        metadata_path = str(MODEL_INDEX_PATH).replace('.index', '_metadata.json')
+        
+        if MODEL_INDEX_PATH.exists() and os.path.exists(metadata_path):
+            index_size_mb = os.path.getsize(MODEL_INDEX_PATH) / (1024 * 1024)
+            
+            # Load metadata to get SKU count
+            try:
+                with open(metadata_path, 'r') as f:
+                    metadata = json_module.load(f)
+                    skus_count = len(metadata.get('sku_list', []))
+            except:
+                skus_count = 0
+            
+            return jsonify({
+                'exists': True,
+                'index_path': str(MODEL_INDEX_PATH),
+                'index_size_mb': round(index_size_mb, 2),
+                'skus_count': skus_count,
+                'message': f'Index ready: {index_size_mb:.2f}MB with {skus_count} SKUs'
+            }), 200
+        else:
+            return jsonify({
+                'exists': False,
+                'index_path': str(MODEL_INDEX_PATH),
+                'message': 'No index file. Run POST /api/train-index to create one.'
+            }), 200
+            
+    except Exception as e:
+        return jsonify({
+            'error': str(e)
+        }), 500
+
+
+@APP.route('/api/download-index', methods=['GET'])
+def download_index():
+    """Download the FAISS index file for backup or transfer.
+    
+    Returns a zip file containing:
+    - scan_model.index
+    - scan_model_metadata.json
+    """
+    try:
+        import zipfile
+        import tempfile
+        
+        MODEL_INDEX_PATH = PROJECT / 'scan_models' / 'scan_model.index'
+        metadata_path = str(MODEL_INDEX_PATH).replace('.index', '_metadata.json')
+        
+        if not MODEL_INDEX_PATH.exists():
+            return jsonify({
+                'error': 'Index file not found. Run POST /api/train-index first.'
+            }), 404
+        
+        # Create temporary zip file
+        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp:
+            tmp_zip_path = tmp.name
+        
+        # Add files to zip
+        with zipfile.ZipFile(tmp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            zf.write(MODEL_INDEX_PATH, arcname='scan_model.index')
+            if os.path.exists(metadata_path):
+                zf.write(metadata_path, arcname='scan_model_metadata.json')
+        
+        def cleanup_zip():
+            import time
+            time.sleep(2)
+            try:
+                os.unlink(tmp_zip_path)
+            except:
+                pass
+        
+        # Clean up after download
+        threading.Thread(target=cleanup_zip, daemon=True).start()
+        
+        return send_file(tmp_zip_path, as_attachment=True, download_name='faiss_index_backup.zip')
+        
+    except Exception as e:
+        print(f"[ERROR] Index download failed: {e}")
+        return jsonify({
+            'error': str(e)
+        }), 500
+
+
+@APP.route('/api/delete-index', methods=['POST'])
+def delete_index():
+    """Delete the cached FAISS index file.
+    
+    Returns:
+        {
+            "success": bool,
+            "message": string
+        }
+    """
+    try:
+        MODEL_INDEX_PATH = PROJECT / 'scan_models' / 'scan_model.index'
+        metadata_path = str(MODEL_INDEX_PATH).replace('.index', '_metadata.json')
+        
+        deleted_files = []
+        
+        if MODEL_INDEX_PATH.exists():
+            try:
+                os.unlink(MODEL_INDEX_PATH)
+                deleted_files.append(str(MODEL_INDEX_PATH))
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': f'Failed to delete index file: {e}'
+                }), 500
+        
+        if os.path.exists(metadata_path):
+            try:
+                os.unlink(metadata_path)
+                deleted_files.append(metadata_path)
+            except Exception as e:
+                return jsonify({
+                    'success': False,
+                    'error': f'Failed to delete metadata file: {e}'
+                }), 500
+        
+        if deleted_files:
+            print(f"[DELETE] Index files deleted: {deleted_files}")
+            return jsonify({
+                'success': True,
+                'message': f'Deleted {len(deleted_files)} file(s)',
+                'deleted_files': deleted_files
+            }), 200
+        else:
+            return jsonify({
+                'success': True,
+                'message': 'No index files to delete'
+            }), 200
+            
+    except Exception as e:
+        print(f"[ERROR] Failed to delete index: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
 @APP.route('/api/detect', methods=['POST'])
 def detect_products():
     """Detect products in an uploaded image, crop them, and match to SKUs.
@@ -1439,25 +1875,29 @@ def detect_products():
         cv2.imwrite(str(img_path), image)
         image_url = f'/tmp/{img_filename}'
         
-        # Load trained model
-        from hyperimagedetect import HOLO
-        scan_model_path = PROJECT / 'scan_models' / 'scan_model.pt'
+        # Use cached HOLO model (loaded on startup for speed)
+        global HOLO_MODEL_CACHE
+        if HOLO_MODEL_CACHE is None:
+            # Fallback: load model if not cached (shouldn't happen if startup worked)
+            print("[WARNING] HOLO model not cached, loading fresh...")
+            from hyperimagedetect import HOLO
+            scan_model_path = PROJECT / 'scan_models' / 'scan_model.pt'
+            
+            if not scan_model_path.exists():
+                return jsonify({
+                    'success': False,
+                    'product_count': 0,
+                    'detections': [],
+                    'error': f'Model not found at {scan_model_path}. Please train first.'
+                }), 404
+            
+            HOLO_MODEL_CACHE = HOLO(str(scan_model_path))
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            HOLO_MODEL_CACHE.to(device)
         
-        if not scan_model_path.exists():
-            return jsonify({
-                'success': False,
-                'product_count': 0,
-                'detections': [],
-                'error': f'Model not found at {scan_model_path}. Please train first.'
-            }), 404
-        
-        # Load model and run inference
-        model = HOLO(str(scan_model_path))
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        model.to(device)
-        
-        # Run detection
-        results = model.predict(image, conf=0.5, verbose=False)
+        # Run detection using cached model
+        print("[DETECTION] Using cached HOLO model for inference...")
+        results = HOLO_MODEL_CACHE.predict(image, conf=0.5, verbose=False)
         
         # Parse results
         detections = []
@@ -1495,23 +1935,46 @@ def detect_products():
         # Initialize SKU matching
         crops_url = None
         sku_matches = {}
+        matching_mode = 'none'
         
         if detections:
             try:
-                # Initialize OpenCLIP matcher
-                print("[OPENCLIP] Initializing OpenCLIP for SKU matching...")
-                matcher = SKUEmbeddingMatcher(model_name="ViT-B-32", pretrained="openai")
+                # Use global cached matcher instance (loaded on startup, much faster)
+                global MATCHER_INSTANCE, FAISS_INDEX_LOADED
+                if MATCHER_INSTANCE is None:
+                    print("[OPENCLIP] Initializing OpenCLIP matcher...")
+                    from sku_embeddings import SKUEmbeddingMatcher
+                    MATCHER_INSTANCE = SKUEmbeddingMatcher(model_name="ViT-B-32", pretrained="openai")
                 
-                # Get SKU embeddings from dataset
-                print("[OPENCLIP] Generating SKU embeddings...")
-                sku_embeddings = matcher.get_sku_embeddings_from_dataset(
-                    str(PROJECT / 'openclip_dataset')
-                )
+                matcher = MATCHER_INSTANCE
+                print("[OPENCLIP] Using cached matcher instance for SKU matching...")
                 
-                # Build FAISS index for fast search (50-100x speedup)
-                if sku_embeddings:
-                    print("[FAISS] Building fast search index...")
-                    matcher.build_faiss_index(sku_embeddings)
+                # Check if FAISS index is already cached from startup
+                index_loaded = FAISS_INDEX_LOADED
+                sku_embeddings = {}
+                
+                if index_loaded:
+                    matching_mode = 'cached_index'
+                    print("[FAISS] ✓ Using FAISS index from startup cache (instant load)")
+                else:
+                    print("[FAISS] FAISS index not cached, will generate from raw dataset...")
+                
+                # If no cached index, generate from raw dataset
+                if not index_loaded:
+                    matching_mode = 'raw_images'
+                    print("[OPENCLIP] Generating SKU embeddings from raw dataset...")
+                    sku_embeddings = matcher.get_sku_embeddings_from_dataset(
+                        str(PROJECT / 'openclip_dataset')
+                    )
+                    
+                    if sku_embeddings:
+                        print("[FAISS] Building fast search index...")
+                        matcher.build_faiss_index(sku_embeddings)
+                        
+                        # Optionally save for future use
+                        MODEL_INDEX_PATH = PROJECT / 'scan_models' / 'scan_model.index'
+                        print(f"[FAISS] Saving index to {MODEL_INDEX_PATH} for future use...")
+                        matcher.save_faiss_index(str(MODEL_INDEX_PATH))
                 
                 # Crop detected regions
                 print(f"[OPENCLIP] Cropping {len(detections)} detected regions...")
@@ -1578,8 +2041,17 @@ def detect_products():
             'detections': detections,
             'image_size': [width, height],
             'image_url': image_url,
-            'message': f'Detected {product_count} product(s)'
+            'message': f'Detected {product_count} product(s)',
+            'matching_mode': matching_mode
         }
+        
+        # Add mode description
+        if matching_mode == 'cached_index':
+            response['mode_description'] = '⚡ Using cached FAISS index (fast!)'
+        elif matching_mode == 'raw_images':
+            response['mode_description'] = '📊 Using raw image processing (first-time)'
+        else:
+            response['mode_description'] = 'No SKU matching performed'
         
         if crops_url:
             response['crops_url'] = crops_url
@@ -2673,6 +3145,18 @@ def delete_image():
 
 
 if __name__ == '__main__':
+    # Check and install GPU FAISS if needed
+    print("\n" + "="*80)
+    print("🚀 INITIALIZING APP...")
+    print("="*80)
+    check_and_install_gpu_faiss()
+    
+    # Initialize all caches (HOLO model, FAISS index, OpenCLIP embeddings)
+    print("\n🚀 INITIALIZING APP CACHES...")
+    print("="*80)
+    initialize_sku_embeddings()
+    print("="*80 + "\n")
+    
     # t = threading.Thread(target=monitor_models, daemon=True)
     # t.start()
     APP.run(host='0.0.0.0', port=5002)

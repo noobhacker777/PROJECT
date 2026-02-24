@@ -355,6 +355,78 @@ class SKUEmbeddingMatcher:
                     logger.info(f"[OK] Generated embedding for SKU: {sku_id}")
         
         return sku_embeddings
+    
+    def save_faiss_index(self, index_path: str) -> bool:
+        """Save FAISS index and SKU list metadata to disk.
+        
+        Args:
+            index_path: Path to save .index file
+            
+        Returns:
+            True if saved successfully, False otherwise
+        """
+        if self.faiss_index is None or self.sku_list is None:
+            logger.warning("No FAISS index to save")
+            return False
+        
+        try:
+            # Create directory if needed
+            os.makedirs(os.path.dirname(index_path), exist_ok=True)
+            
+            # Save FAISS index
+            faiss.write_index(self.faiss_index, index_path)
+            
+            # Save SKU list metadata
+            metadata_path = index_path.replace('.index', '_metadata.json')
+            with open(metadata_path, 'w') as f:
+                json.dump({'sku_list': self.sku_list}, f)
+            
+            file_size_mb = os.path.getsize(index_path) / (1024 * 1024)
+            logger.info(f"[OK] FAISS index saved to {index_path} ({file_size_mb:.2f}MB)")
+            print(f"[OK] FAISS index saved to {index_path} ({file_size_mb:.2f}MB)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error saving FAISS index: {e}")
+            print(f"[ERROR] Failed to save FAISS index: {e}")
+            return False
+    
+    def load_faiss_index(self, index_path: str) -> bool:
+        """Load FAISS index and SKU list metadata from disk.
+        
+        Args:
+            index_path: Path to .index file
+            
+        Returns:
+            True if loaded successfully, False otherwise
+        """
+        if not os.path.exists(index_path):
+            logger.warning(f"Index file not found: {index_path}")
+            return False
+        
+        try:
+            # Load metadata
+            metadata_path = index_path.replace('.index', '_metadata.json')
+            if not os.path.exists(metadata_path):
+                logger.warning(f"Metadata file not found: {metadata_path}")
+                return False
+            
+            with open(metadata_path, 'r') as f:
+                metadata = json.load(f)
+                self.sku_list = metadata.get('sku_list', [])
+            
+            # Load FAISS index
+            self.faiss_index = faiss.read_index(index_path)
+            
+            file_size_mb = os.path.getsize(index_path) / (1024 * 1024)
+            logger.info(f"[OK] FAISS index loaded from {index_path} ({file_size_mb:.2f}MB, {self.faiss_index.ntotal} vectors)")
+            print(f"[OK] FAISS index loaded from {index_path} ({file_size_mb:.2f}MB, {self.faiss_index.ntotal} vectors)")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error loading FAISS index: {e}")
+            print(f"[ERROR] Failed to load FAISS index: {e}")
+            return False
 
 
 def load_sku_info(sku_json_path: str = None) -> dict:

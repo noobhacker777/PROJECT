@@ -64,6 +64,10 @@
         <h3>💾 Backups</h3>
         <p>Manage model backups and history</p>
       </div>
+      <div class="card" onclick="switchTab('index')">
+        <h3>⚡ FAISS Index</h3>
+        <p>Generate, upload, and manage FAISS index</p>
+      </div>
     </div>
 
     <!-- HIERARCHICAL 4-LEVEL Section - REMOVED, now integrated in LABEL -->
@@ -432,6 +436,15 @@
             </div>
           </div>
           
+          <!-- Matching Mode Indicator -->
+          <div id="matchingModeIndicator" style="margin-bottom:15px; padding:12px; border-radius:6px; display:flex; align-items:center; gap:10px; border-left:4px solid #6c757d; background-color:#f8f9fa;">
+            <span id="modeIcon" style="font-size:20px;">ℹ️</span>
+            <div>
+              <div style="font-size:11px; color:#666; font-weight:bold;">Matching Mode:</div>
+              <div id="modeDescription" style="font-size:12px; color:#333; margin-top:3px;">No SKU matching</div>
+            </div>
+          </div>
+          
           <!-- Detection Image Preview -->
           <div style="margin-bottom:15px;">
             <div style="font-size:12px; font-weight:bold; color:#333; margin-bottom:8px;">Uploaded Image:</div>
@@ -649,6 +662,72 @@
 
 
 
+    <!-- INDEX MANAGEMENT Section -->
+    <div id="tab-index" class="section" style="display:none;">
+      <h2>⚡ FAISS Index Management</h2>
+      <p style="color:#666; font-size:13px;">Generate, manage, upload, and download FAISS index for fast SKU matching (15-70x speedup)</p>
+      
+      <!-- Index Stats -->
+      <div id="indexStats" style="display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:12px; margin-bottom:20px;">
+        <div style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%); color:white; padding:15px; border-radius:8px; text-align:center;">
+          <div style="font-size:12px; opacity:0.9;">📊 Status</div>
+          <div style="font-size:18px; font-weight:bold; margin-top:8px;" id="indexStatus">Not loaded</div>
+        </div>
+        <div style="background:linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color:white; padding:15px; border-radius:8px; text-align:center;">
+          <div style="font-size:12px; opacity:0.9;">📦 SKUs</div>
+          <div style="font-size:28px; font-weight:bold; margin-top:8px;" id="indexSkuCount">--</div>
+        </div>
+        <div style="background:linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color:white; padding:15px; border-radius:8px; text-align:center;">
+          <div style="font-size:12px; opacity:0.9;">💾 Size</div>
+          <div style="font-size:18px; font-weight:bold; margin-top:8px;" id="indexSize">-- MB</div>
+        </div>
+      </div>
+
+      <!-- Control Buttons -->
+      <div style="background:#f9f9f9; padding:20px; border-radius:8px; border:1px solid #ddd; margin-bottom:20px;">
+        <h3 style="margin:0 0 15px 0; font-size:14px; color:#333;">⚙️ Index Operations</h3>
+        
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px;">
+          <!-- Check Status Button -->
+          <button onclick="checkIndexStatus()" style="padding:12px 16px; background:#0dcaf0; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold; font-size:13px; display:flex; align-items:center; justify-content:center; gap:8px; transition:background 0.2s;" onmouseover="this.style.background='#0ba5c9'" onmouseout="this.style.background='#0dcaf0'">
+            📊 Check Status
+          </button>
+          
+          <!-- Generate Index Button -->
+          <button onclick="generateFaissIndex()" id="generateIndexBtn" style="padding:12px 16px; background:#28a745; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold; font-size:13px; display:flex; align-items:center; justify-content:center; gap:8px; transition:background 0.2s;" onmouseover="this.style.background='#218838'" onmouseout="this.style.background='#28a745'">
+            ⚡ Generate Index (2-3 min)
+          </button>
+          
+          <!-- Download Index Button -->
+          <button onclick="downloadIndexFile()" style="padding:12px 16px; background:#667eea; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold; font-size:13px; display:flex; align-items:center; justify-content:center; gap:8px; transition:background 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
+            📥 Download Backup
+          </button>
+          
+          <!-- Upload Index Button -->
+          <button onclick="openUploadIndexModal()" style="padding:12px 16px; background:#fd7e14; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold; font-size:13px; display:flex; align-items:center; justify-content:center; gap:8px; transition:background 0.2s;" onmouseover="this.style.background='#e06c00'" onmouseout="this.style.background='#fd7e14'">
+            📤 Upload Index
+          </button>
+          
+          <!-- Delete Index Button -->
+          <button onclick="deleteIndexFile()" style="padding:12px 16px; background:#dc3545; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold; font-size:13px; display:flex; align-items:center; justify-content:center; gap:8px; transition:background 0.2s;" onmouseover="this.style.background='#c82333'" onmouseout="this.style.background='#dc3545'">
+            🗑️ Delete Index
+          </button>
+        </div>
+      </div>
+      
+      <!-- Progress & Status -->
+      <div id="indexProgress" style="display:none; margin-bottom:20px; padding:15px; background:#e7f3ff; border:1px solid #0dcaf0; border-radius:4px;">
+        <div style="font-size:12px; font-weight:bold; color:#0c5460; margin-bottom:8px;">⏳ Processing...</div>
+        <div style="width:100%; height:8px; background:#ddd; border-radius:4px; overflow:hidden;">
+          <div id="indexProgressBar" style="height:100%; background:#0dcaf0; width:0%; transition:width 0.3s;"></div>
+        </div>
+        <div id="indexProgressText" style="font-size:11px; color:#0c5460; margin-top:6px;"></div>
+      </div>
+      
+      <!-- Output -->
+      <div id="indexOut" class="output"></div>
+    </div>
+
     <!-- BACKUPS Section -->
     <div id="tab-backups" class="section" style="display:none;">
       <h2>💾 Model Backups</h2>
@@ -679,7 +758,45 @@
   </div>
 
   <script src="dashboard.js"></script>
+</head>
+<body>
+  <!-- existing content... -->
 </body>
+
+<!-- Upload Index Modal -->
+<div id="uploadIndexModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center; flex-direction:column;">
+  <div style="background:white; padding:25px; border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,0.3); width:90%; max-width:500px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
+      <h2 style="margin:0; font-size:18px;">📤 Upload FAISS Index</h2>
+      <button onclick="closeUploadIndexModal()" style="background:none; border:none; font-size:24px; cursor:pointer; color:#999;">×</button>
+    </div>
+    
+    <p style="font-size:13px; color:#666; margin-bottom:15px;">Upload a previously saved FAISS index file. You need BOTH files:</p>
+    
+    <div style="margin-bottom:15px;">
+      <label style="font-weight:bold; display:block; margin-bottom:8px; font-size:13px;">📦 Index File (.index):</label>
+      <input type="file" id="uploadIndexFile" accept=".index" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; font-size:12px;">
+    </div>
+    
+    <div style="margin-bottom:15px;">
+      <label style="font-weight:bold; display:block; margin-bottom:8px; font-size:13px;">📋 Metadata File (_metadata.json):</label>
+      <input type="file" id="uploadMetadataFile" accept=".json" style="width:100%; padding:8px; border:1px solid #ddd; border-radius:4px; font-size:12px;">
+    </div>
+    
+    <div id="uploadIndexProgress" style="display:none; margin-bottom:15px; padding:10px; background:#e7f3ff; border:1px solid #0dcaf0; border-radius:4px;">
+      <div style="font-size:12px; font-weight:bold; color:#0c5460; margin-bottom:5px;">⏳ Uploading...</div>
+      <div style="width:100%; height:6px; background:#ddd; border-radius:3px; overflow:hidden;">
+        <div id="uploadIndexProgressBar" style="height:100%; background:#0dcaf0; width:0%; transition:width 0.3s;"></div>
+      </div>
+    </div>
+    
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+      <button onclick="closeUploadIndexModal()" style="padding:10px; background:#e9ecef; border:1px solid #ddd; border-radius:4px; cursor:pointer; font-weight:bold;">❌ Cancel</button>
+      <button onclick="performUploadIndex()" id="uploadIndexSubmitBtn" style="padding:10px; background:#fd7e14; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:bold;">📤 Upload</button>
+    </div>
+  </div>
+</div>
+
 <!-- SKU Management Modals -->
 
 <!-- Add Single SKU Modal -->
