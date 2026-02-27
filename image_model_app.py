@@ -2259,10 +2259,38 @@ def detect_products():
                 
                 # Update detections list to only include products with valid SKU matches
                 original_product_count = product_count
-                product_count = len(filtered_detections)
-                detections = filtered_detections
                 
-                print(f"[FILTER] Products with SKU match: {product_count}/{original_product_count}")
+                # Filter: Only keep detections that have OCR text (full_text not empty)
+                ocr_filtered = []
+                for det in filtered_detections:
+                    det_ocr = det.get('ocr_data')
+                    if det_ocr:
+                        ft = (det_ocr.get('full_text') or '').strip()
+                        avg_conf = det_ocr.get('average_confidence', 0.0)
+                        if ft and avg_conf >= 0.3:
+                            ocr_filtered.append(det)
+                        else:
+                            print(f"[FILTER] Detection {det.get('id')}: OCR text empty or confidence too low ({avg_conf:.1%}) - excluding")
+                    else:
+                        print(f"[FILTER] Detection {det.get('id')}: No OCR data - excluding")
+                
+                # Deduplicate by bounding box: same box = same product, keep highest SKU similarity
+                box_dedup = {}  # {box_key: detection}
+                for det in ocr_filtered:
+                    box = det.get('box', [0, 0, 0, 0])
+                    box_key = tuple(round(v, 1) for v in box)
+                    sim = det.get('sku_similarity', 0)
+                    
+                    if box_key not in box_dedup:
+                        box_dedup[box_key] = det
+                    elif sim > box_dedup[box_key].get('sku_similarity', 0):
+                        box_dedup[box_key] = det
+                
+                detections = list(box_dedup.values())
+                product_count = len(detections)
+                
+                print(f"[FILTER] Products after OCR filter: {len(ocr_filtered)}/{original_product_count}")
+                print(f"[FILTER] Products after box dedup: {product_count}")
                 print(f"[OPENCLIP] SKU matching complete: {sku_matches}")
                 
             except ImportError:
@@ -2295,23 +2323,10 @@ def detect_products():
                     print(f"[OCR-SKU] ✓ Matched from OCR: {matched_sku_from_ocr} "
                           f"(keywords: {matched_keywords}, score: {confidence_score_ocr:.3f})")
                     
-                    # ADD OCR-MATCHED SKU TO PRODUCT TABLE
-                    # If OCR keyword matching found a valid SKU, add it as a detection
-                    if len(detections) > 0 and product_count > 0:
-                        # Use first detection and update with OCR match
-                        ocr_detection = detections[0].copy()
-                        ocr_detection['matched_sku'] = matched_sku_from_ocr
-                        ocr_detection['sku_similarity'] = round(confidence_score_ocr, 3)
-                        ocr_detection['search_mode'] = 'ocr_keyword_match'
-                        ocr_detection['matched_keywords'] = matched_keywords
-                        ocr_detection['has_ocr_text'] = True
-                        ocr_detection['ocr_data'] = ocr_data
-                        
-                        # Check if detection is already in filtered_detections
-                        if ocr_detection not in detections:
-                            filtered_detections.append(ocr_detection)
-                            product_count = len(filtered_detections)
-                            print(f"[OCR-SKU-TABLE] Added OCR-matched product to table: {matched_sku_from_ocr}")
+                    # OCR-matched SKU is used as confirmation data only
+                    # Do NOT add duplicate detections with same bounding box
+                    # The best SKU match per box is already selected by the dedup logic above
+                    print(f"[OCR-SKU] OCR keyword match available for confirmation: {matched_sku_from_ocr}")
             except Exception as e:
                 print(f"[WARNING] OCR-to-SKU matching error: {e}")
                 ocr_sku_match = {
@@ -2392,15 +2407,8 @@ def detect_products():
 @APP.route('/scan', methods=['GET'])
 def scan_image_simple():
     """Simple GET endpoint for scanning images via URL - returns JSON API response.
-    
-    Usage:
-        /scan?image=IMG_1445.jpeg                          (from dataset/images/)
-        /scan?image=/uploads/image/IMG_1445.jpeg          (from uploads)
-        /scan?image=/tmp/scan_20231230_145030.jpg         (from tmp)
-        /scan?image=http://localhost:5002/uploads/image/IMG_1445.jpeg (full URL)
-        /scan?image=http://example.com/photo.jpg           (remote URL)
-    
-    Returns: JSON with detections, SKU matches, and image URLs
+
+        Returns: JSON with detections, SKU matches, and image URLs
     """
     image_param = request.args.get('image', '').strip()
     
@@ -3598,6 +3606,372 @@ def delete_image():
         }), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@APP.route('/api/detect-crops', methods=['POST'])
+def detect_crops():
+    """Detect products, crop them, extract OCR, and match to SKUs via FAISS.
+    
+    Complete pipeline:
+    1. Detect products using HOLO model
+    2. Crop each detection and save to temp/
+    3. Extract OCR text from each crop
+    4. Generate embedding and match to SKU
+    5. Validate: if OCR text present AND FAISS match valid → assign SKU
+    
+    Query params:
+    - accuracy_mode: "true" to use exact search instead of FAISS (slower but more accurate)
+    - export_report: "true" to save processing report to tmp/
+    
+    Returns:
+        {
+            "success": bool,
+            "product_count": int,
+            "detections": [
+                {
+                    "id": 0,
+                    "box": [x, y, w, h],
+                    "confidence": 0.95,
+                    "crop_filename": "crop_20250227_123456_0.jpg",
+                    "ocr_data": {
+                        "text": "OREO MEGAPACK",
+                        "has_text": true,
+                        "confidence": 0.95
+                    },
+                    "sku_match": {
+                        "sku": "OREO MEGAPACK",
+                        "similarity": 0.87,
+                        "method": "faiss"
+                    },
+                    "is_valid": true,
+                    "confidence_combined": 0.91
+                }
+            ],
+            "image_url": "/tmp/scan_...",
+            "summary": {
+                "total_crops": 5,
+                "valid_crops": 4,
+                "invalid_crops": 1,
+                "ocr_detected": 4,
+                "sku_matched": 5
+            }
+        }
+    """
+    try:
+        # Check for image file
+        if 'image' not in request.files:
+            return jsonify({
+                'success': False,
+                'product_count': 0,
+                'detections': [],
+                'error': 'No image file provided'
+            }), 400
+        
+        image_file = request.files['image']
+        if image_file.filename == '':
+            return jsonify({
+                'success': False,
+                'product_count': 0,
+                'detections': [],
+                'error': 'No file selected'
+            }), 400
+        
+        # Load image
+        from crop_processor import CropProcessor
+        import torch
+        import uuid
+        
+        img_data = image_file.read()
+        img_array = np.frombuffer(img_data, np.uint8)
+        image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+        
+        if image is None:
+            return jsonify({
+                'success': False,
+                'product_count': 0,
+                'detections': [],
+                'error': 'Could not decode image'
+            }), 400
+        
+        height, width = image.shape[:2]
+        
+        # Save image to tmp/
+        tmp_dir = PROJECT / 'tmp'
+        tmp_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        unique_id = str(uuid.uuid4())[:8]
+        img_filename = f'scan_{timestamp}_{unique_id}.jpg'
+        img_path = tmp_dir / img_filename
+        cv2.imwrite(str(img_path), image)
+        image_url = f'/tmp/{img_filename}'
+        
+        # Get options
+        accuracy_mode = request.args.get('accuracy_mode', 'false').lower() == 'true'
+        export_report = request.args.get('export_report', 'false').lower() == 'true'
+        
+        # Load HOLO model (use cached if available)
+        global HOLO_MODEL_CACHE
+        if HOLO_MODEL_CACHE is None:
+            print("[HOLO] Loading model (first time)...")
+            from hyperimagedetect import HOLO
+            scan_model_path = PROJECT / 'scan_models' / 'scan_model.pt'
+            
+            if not scan_model_path.exists():
+                return jsonify({
+                    'success': False,
+                    'product_count': 0,
+                    'detections': [],
+                    'error': f'Model not found at {scan_model_path}. Please train first.'
+                }), 404
+            
+            HOLO_MODEL_CACHE = HOLO(str(scan_model_path))
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            HOLO_MODEL_CACHE.to(device)
+        
+        # Run detection
+        print("[HOLO] Running inference...")
+        results = HOLO_MODEL_CACHE.predict(image, conf=0.5, verbose=False)
+        
+        # Parse detections
+        detections = []
+        if results and len(results) > 0:
+            for result in results:
+                if hasattr(result, 'boxes') and result.boxes is not None:
+                    boxes = result.boxes
+                    for j, box in enumerate(boxes):
+                        try:
+                            xyxy = box.xyxy[0].cpu().numpy() if hasattr(box, 'xyxy') else None
+                            conf = float(box.conf[0]) if hasattr(box, 'conf') else 0.0
+                            
+                            if xyxy is not None:
+                                x1, y1, x2, y2 = xyxy
+                                detections.append({
+                                    'id': len(detections),
+                                    'confidence': round(conf, 3),
+                                    'box': [
+                                        round(float(x1), 2),
+                                        round(float(y1), 2),
+                                        round(float(x2 - x1), 2),
+                                        round(float(y2 - y1), 2)
+                                    ]
+                                })
+                        except Exception as e:
+                            print(f"[HOLO] Error parsing detection: {e}")
+                            continue
+        
+        # Initialize crop processor
+        print(f"[CROP-PROCESSOR] Processing {len(detections)} detection(s)...")
+        
+        # Initialize matcher and OCR extractor
+        global MATCHER_INSTANCE
+        if MATCHER_INSTANCE is None:
+            from sku_embeddings import SKUEmbeddingMatcher
+            MATCHER_INSTANCE = SKUEmbeddingMatcher()
+        
+        # OCR extractor function (uses existing extract_ocr_keywords)
+        def ocr_extractor_func(crop_image):
+            return extract_ocr_keywords(crop_image)
+        
+        # Create processor
+        processor = CropProcessor(
+            tmp_dir=str(tmp_dir),
+            matcher=MATCHER_INSTANCE,
+            ocr_extractor=ocr_extractor_func
+        )
+        
+        # Load SKU embeddings if available
+        sku_embeddings = None
+        try:
+            sku_embeddings = MATCHER_INSTANCE.get_sku_embeddings_from_dataset(
+                str(PROJECT / 'openclip_dataset')
+            )
+            if sku_embeddings:
+                print(f"[CROP-PROCESSOR] Loaded {len(sku_embeddings)} SKU embeddings")
+                MATCHER_INSTANCE.build_faiss_index(sku_embeddings)
+        except Exception as e:
+            print(f"[CROP-PROCESSOR] Warning loading embeddings: {e}")
+        
+        # Process ALL crops in PARALLEL with high-confidence filtering
+        print(f"[CROP-PROCESSOR] 🚀 Processing {len(detections)} crops in PARALLEL...")
+        
+        # Get confidence threshold from request (default: 0.40 = 40%)
+        confidence_threshold = float(request.args.get('confidence_threshold', '0.40'))
+        
+        # Get minimum SKU similarity threshold (default: 0.40 = 40%)
+        min_similarity = float(request.args.get('min_similarity', '0.40'))
+        
+        # Process crops in parallel and return HIGH CONFIDENCE results only
+        high_confidence_results = processor.process_crops_parallel(
+            image,
+            detections,
+            sku_embeddings,
+            max_workers=4,  # 4 parallel workers
+            confidence_threshold=confidence_threshold
+        )
+        
+        # Filter results by minimum SKU similarity threshold (>= 40%)
+        filtered_results = [
+            r for r in high_confidence_results 
+            if r.get('faiss_similarity', 0) >= min_similarity
+        ]
+        
+        # Deduplicate by crop_index: Keep only highest SKU similarity per crop
+        dedup_map = {}  # {crop_index: best_result}
+        for result in filtered_results:
+            crop_idx = result['crop_index']
+            faiss_sim = result.get('faiss_similarity', 0)
+            
+            # Keep this result if crop_index not seen or has higher similarity
+            if crop_idx not in dedup_map:
+                dedup_map[crop_idx] = result
+            elif faiss_sim > dedup_map[crop_idx].get('faiss_similarity', 0):
+                dedup_map[crop_idx] = result
+        
+        # Second pass: Deduplicate by bounding box - same box = same product, keep highest similarity
+        box_dedup = {}  # {box_key: best_result}
+        for result in dedup_map.values():
+            crop_idx = result['crop_index']
+            det = detections[crop_idx]
+            # Create a box key from bounding box coordinates (rounded to avoid float precision issues)
+            box = det.get('box', det.get('bbox', [0, 0, 0, 0]))
+            box_key = tuple(round(v, 1) for v in box)
+            
+            faiss_sim = result.get('faiss_similarity', 0)
+            
+            if box_key not in box_dedup:
+                box_dedup[box_key] = result
+            elif faiss_sim > box_dedup[box_key].get('faiss_similarity', 0):
+                box_dedup[box_key] = result
+        
+        # Use deduplicated results (unique per bounding box)
+        final_results = list(box_dedup.values())
+        
+        # Build response detections from HIGH CONFIDENCE parallel results
+        response_detections = []
+        sku_similarity_table = []  # For table format
+        table_crop_indices = set()  # Track which crop_index entries are in the table
+        summary = {
+            'total_crops': len(detections),
+            'high_confidence_crops': len(high_confidence_results),
+            'similarity_filtered_crops': len(filtered_results),
+            'after_deduplication': len(final_results),
+            'min_similarity_threshold': min_similarity,
+            'low_confidence_crops': len(detections) - len(high_confidence_results),
+            'confidence_threshold': confidence_threshold,
+            'ocr_detected': 0,
+            'sku_matched': 0,
+            'sku_matched_high_similarity': 0,
+            'ocr_sku_text_matched': 0
+        }
+        
+        for result in final_results:
+            # Only add to Detected Products table if OCR found text
+            has_valid_ocr = False
+            if result['ocr_data']:
+                ocr_conf = result['ocr_data'].get('average_confidence', 0.0)
+                ocr_text = result['ocr_data'].get('text', '') or result['ocr_data'].get('full_text', '')
+                has_valid_ocr = bool(ocr_text.strip()) and ocr_conf >= 0.3
+            
+            # Skip crops where full_text is empty (0 text found) or OCR confidence too low
+            if not has_valid_ocr:
+                continue
+            
+            # Build detection response from high-confidence parallel results
+            detection = detections[result['crop_index']].copy()
+            detection['crop_filename'] = result['crop_filename']
+            detection['crop_index'] = result['crop_index']
+            
+            # Add OCR data (skip if average_confidence is 0-0.3)
+            if result['ocr_data']:
+                ocr_conf = result['ocr_data'].get('average_confidence', 0.0)
+                if ocr_conf >= 0.3:
+                    detection['ocr_data'] = {
+                        'text': result['ocr_data'].get('text', ''),
+                        'has_text': bool(result['ocr_data'].get('text')),
+                        'keywords': result['ocr_data'].get('keywords', []),
+                        'keyword_count': result['ocr_data'].get('keyword_count', 0),
+                        'confidence': round(ocr_conf, 3)
+                    }
+                    if detection['ocr_data']['has_text']:
+                        summary['ocr_detected'] += 1
+            
+            # Add SKU match from FAISS
+            if result['sku_match'] and result['sku_match'].get('matched_sku'):
+                matched_sku = result['sku_match'].get('matched_sku')
+                faiss_similarity = result['faiss_similarity']
+                
+                detection['sku_match'] = {
+                    'sku': matched_sku,
+                    'faiss_similarity': faiss_similarity,
+                    'method': result['sku_match'].get('accuracy_mode', 'faiss')
+                }
+                summary['sku_matched'] += 1
+                if faiss_similarity >= min_similarity:
+                    summary['sku_matched_high_similarity'] += 1
+                
+                # Add to SKU similarity table (ONLY IF NOT ALREADY ADDED for this crop_index)
+                crop_idx = result['crop_index']
+                if crop_idx not in table_crop_indices:
+                    sku_similarity_table.append({
+                        'crop_index': crop_idx,
+                        'crop_filename': result['crop_filename'],
+                        'sku': matched_sku,
+                        'similarity': round(faiss_similarity * 100, 1),  # Convert to percentage
+                        'meets_threshold': faiss_similarity >= min_similarity,
+                        'ocr_text': result['ocr_data'].get('text', 'N/A') if result['ocr_data'] else 'N/A'
+                    })
+                    table_crop_indices.add(crop_idx)
+            
+            # Add OCR-to-SKU text matching results
+            if result['ocr_sku_match'] and result['ocr_sku_match'].get('matched'):
+                detection['ocr_sku_match'] = {
+                    'matched': True,
+                    'matched_keywords': result['ocr_sku_match'].get('matched_keywords', []),
+                    'similarity_score': result['ocr_match_score'],
+                    'average_similarity': result['ocr_sku_match'].get('average_similarity', 0.0)
+                }
+                summary['ocr_sku_text_matched'] += 1
+            
+            # Add combined confidence breakdown
+            detection['confidence'] = {
+                'faiss_similarity': result['faiss_similarity'],
+                'ocr_match_score': result['ocr_match_score'],
+                'combined': result['confidence_combined']
+            }
+            detection['confidence_combined'] = result['confidence_combined']
+            detection['high_confidence'] = True
+            
+            response_detections.append(detection)
+        
+        # Export report if requested
+        report_path = None
+        if export_report:
+            report_path = processor.export_processing_report(high_confidence_results)
+        
+        response = {
+            'success': True,
+            'product_count': summary['after_deduplication'],
+            'detections': response_detections,
+            'image_url': image_url,
+            'summary': summary,
+            'sku_similarity_table': sku_similarity_table,
+            'accuracy_mode': accuracy_mode,
+            'message': f'Processed {summary["after_deduplication"]} unique product(s) above {int(min_similarity*100)}% similarity (deduplicated from {summary["similarity_filtered_crops"]} matches)',
+            'report_path': report_path if report_path else None
+        }
+        
+        return jsonify(response), 200
+        
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] Detect crops failed: {e}")
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'product_count': 0,
+            'detections': [],
+            'error': str(e)
+        }), 500
 
 
 if __name__ == '__main__':
