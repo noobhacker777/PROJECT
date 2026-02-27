@@ -233,8 +233,8 @@ def extract_ocr_keywords(image):
                 })
                 full_text += text_cleaned + " "
         
-        # Filter keywords with >30% accuracy for table display
-        high_confidence_keywords = [kw for kw in keywords if kw['confidence'] >= 0.30]
+        # Filter keywords with >=50% accuracy for table display
+        high_confidence_keywords = [kw for kw in keywords if kw['confidence'] >= 0.50]
         
         # Create JSON result (same format as demo.py)
         ocr_json = {
@@ -242,7 +242,7 @@ def extract_ocr_keywords(image):
             'timestamp': datetime.now().isoformat(),
             'keywords': keywords,  # All keywords list WITHOUT boxes
             'keyword_count': len(keywords),
-            'high_confidence_keywords': high_confidence_keywords,  # NEW: Only >30% for table display
+            'high_confidence_keywords': high_confidence_keywords,  # NEW: Only >=50% for table display
             'high_confidence_count': len(high_confidence_keywords),
             'full_text': full_text.strip(),
             'average_confidence': round(sum(kw['confidence'] for kw in keywords) / len(keywords), 4) if keywords else 0.0,
@@ -251,7 +251,7 @@ def extract_ocr_keywords(image):
         }
         
         print(f"[OCR] ✓ Extracted {len(keywords)} keywords from image (text orientation: {text_orientation})")
-        print(f"[OCR] ✓ High confidence keywords (>30%): {len(high_confidence_keywords)}")
+        print(f"[OCR] ✓ High confidence keywords (>=50%): {len(high_confidence_keywords)}")
         for kw in high_confidence_keywords[:5]:  # Show first 5 high-confidence keywords
             print(f"       • {kw['text']} (confidence: {kw['confidence']})")
         if len(high_confidence_keywords) > 5:
@@ -2212,9 +2212,15 @@ def detect_products():
                             detections[detection_idx]['ocr_data'] = crop_ocr_data
                             detections[detection_idx]['has_ocr_text'] = True
                         
+                        # Check if "bubbly" text is detected in OCR
+                        ocr_full_text = crop_ocr_data.get('full_text', '').lower()
+                        has_bubbly_text = 'bubbly' in ocr_full_text
+                        
                         # Generate embedding for SKU matching
                         crop_embedding = matcher.get_image_embedding(str(temp_crop_path))
                         
+                        matched_sku = None
+                        similarity = 0.0
                         if crop_embedding is not None:
                             # Find best match: accuracy mode uses exact search, otherwise FAISS
                             if accuracy_mode:
@@ -2239,8 +2245,18 @@ def detect_products():
                             search_mode_label = 'EXACT_SEARCH (all embeddings)' if accuracy_mode else match.get('accuracy_mode', 'FAISS')
                             print(f"[OPENCLIP] Crop {i}: Matched to {matched_sku} (similarity: {similarity:.3f}, mode: {search_mode_label})")
                         
-                        # Add to filtered detections (has OCR text)
-                        if detection_idx < len(detections):
+                        # BUBBLY CHECK: If "bubbly" text is detected, only add if matched SKU also contains "bubbly"
+                        should_add_to_table = True
+                        if has_bubbly_text:
+                            sku_lower = (matched_sku or '').lower()
+                            if 'bubbly' not in sku_lower:
+                                should_add_to_table = False
+                                print(f"[FILTER-BUBBLY] Crop {i}: Contains 'bubbly' text but matched SKU '{matched_sku}' does not - excluding")
+                            else:
+                                print(f"[INCLUDE-BUBBLY] Crop {i}: Contains 'bubbly' text and SKU '{matched_sku}' contains 'bubbly' - including")
+                        
+                        # Add to filtered detections only if conditions are met
+                        if should_add_to_table and detection_idx < len(detections):
                             filtered_detections.append(detections[detection_idx])
                     else:
                         # Mark detection as no OCR text
@@ -2283,12 +2299,33 @@ def detect_products():
                     ocr_keywords=ocr_data.get('keywords', []),
                     high_confidence_keywords=ocr_data.get('high_confidence_keywords', []),
                     sku_json_path=str(PROJECT / 'dataset' / 'SKU.json'),
-                    confidence_threshold=0.30
+                    confidence_threshold=0.20
                 )
                 if ocr_sku_match.get('found'):
-                    print(f"[OCR-SKU] Matched from OCR: {ocr_sku_match['matched_sku']} "
-                          f"(keywords: {ocr_sku_match['matched_keywords']}, "
-                          f"score: {ocr_sku_match['confidence_score']:.3f})")
+                    matched_sku_from_ocr = ocr_sku_match['matched_sku']
+                    confidence_score_ocr = ocr_sku_match.get('confidence_score', 0.0)
+                    matched_keywords = ocr_sku_match.get('matched_keywords', [])
+                    
+                    print(f"[OCR-SKU] ✓ Matched from OCR: {matched_sku_from_ocr} "
+                          f"(keywords: {matched_keywords}, score: {confidence_score_ocr:.3f})")
+                    
+                    # ADD OCR-MATCHED SKU TO PRODUCT TABLE
+                    # If OCR keyword matching found a valid SKU, add it as a detection
+                    if len(detections) > 0 and product_count > 0:
+                        # Use first detection and update with OCR match
+                        ocr_detection = detections[0].copy()
+                        ocr_detection['matched_sku'] = matched_sku_from_ocr
+                        ocr_detection['sku_similarity'] = round(confidence_score_ocr, 3)
+                        ocr_detection['search_mode'] = 'ocr_keyword_match'
+                        ocr_detection['matched_keywords'] = matched_keywords
+                        ocr_detection['has_ocr_text'] = True
+                        ocr_detection['ocr_data'] = ocr_data
+                        
+                        # Check if detection is already in filtered_detections
+                        if ocr_detection not in detections:
+                            filtered_detections.append(ocr_detection)
+                            product_count = len(filtered_detections)
+                            print(f"[OCR-SKU-TABLE] Added OCR-matched product to table: {matched_sku_from_ocr}")
             except Exception as e:
                 print(f"[WARNING] OCR-to-SKU matching error: {e}")
                 ocr_sku_match = {
