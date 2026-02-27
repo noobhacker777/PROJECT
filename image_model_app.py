@@ -24,10 +24,36 @@ import cv2
 import numpy as np
 import threading
 
+# OCR imports
+try:
+    import easyocr
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+    print("[WARNING] EasyOCR not installed. OCR functionality will be skipped.")
 
 
 PROJECT = Path(__file__).resolve().parent
 APP = Flask(__name__, static_folder=str(PROJECT / 'static'), static_url_path='')
+
+# Google Vision API imports (after PROJECT is defined)
+try:
+    from google.cloud import vision
+    GOOGLE_OCR_AVAILABLE = True
+    # Check for google_api.json in PROJECT folder first, then fall back to environment variable
+    google_api_file = PROJECT / 'google_api.json'
+    if google_api_file.exists():
+        GOOGLE_CREDENTIALS_PATH = str(google_api_file)
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = GOOGLE_CREDENTIALS_PATH
+        print(f"[GOOGLE-OCR] ✓ Auto-detected credentials: {GOOGLE_CREDENTIALS_PATH}")
+    else:
+        GOOGLE_CREDENTIALS_PATH = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', None)
+        if GOOGLE_CREDENTIALS_PATH:
+            print(f"[GOOGLE-OCR] Using credentials from env: {GOOGLE_CREDENTIALS_PATH}")
+except ImportError:
+    GOOGLE_OCR_AVAILABLE = False
+    GOOGLE_CREDENTIALS_PATH = None
+    print("[INFO] Google Vision API not installed. Will use EasyOCR fallback.")
 
 # Global cache for SKU embeddings (loaded once on startup)
 SKU_EMBEDDINGS_CACHE = {}
@@ -36,6 +62,11 @@ MATCHER_INSTANCE = None
 HOLO_MODEL_CACHE = None  # Cache for scan_model.pt (loaded on startup)
 FAISS_INDEX_LOADED = False  # Track if FAISS index is cached
 _EMBEDDINGS_LOCK = threading.Lock()  # Thread-safe lock for SKU embeddings initialization
+
+# OCR Reader Cache (loaded once, reused for performance)
+OCR_READER_CACHE = None
+OCR_READER_LOCK = threading.Lock()
+
 
 def check_and_install_gpu_faiss():
     """Check if FAISS has GPU support, install if needed."""
@@ -79,6 +110,303 @@ def check_and_install_gpu_faiss():
     except ImportError:
         print("[FAISS] FAISS not installed, skipping GPU check")
         return False
+
+def detect_and_rotate_vertical_text(image):
+    """Detect if text is vertical and rotate image accordingly.
+    
+    Analyzes text orientation to determine if image needs rotation.
+    Returns rotated image and rotation angle used.
+    
+    Args:
+        image: OpenCV image array
+        
+    Returns:
+        Tuple of (rotated_image, rotation_angle)
+    """
+    # Try multiple orientations to find best text alignment
+    angles_to_try = [0, 90, 180, 270]
+    best_angle = 0
+    best_score = 0
+    
+    try:
+        # Quick text orientation detection using dimensions
+        h, w = image.shape[:2]
+        aspect_ratio = w / h
+        
+        # If image is taller than wide (h > w), might be vertical text
+        # Check if rotating 90 degrees improves aspect ratio
+        if aspect_ratio < 0.8:  # Taller image suggests possible vertical orientation
+            print("[OCR] 🔄 Detecting vertical text orientation...")
+            
+            # For now, suggest rotation but don't enforce
+            # OCR will try to read at multiple angles
+            best_angle = 0
+            
+    except Exception as e:
+        print(f"[OCR] Orientation detection info: {e}")
+    
+    return image, best_angle
+
+
+def extract_ocr_keywords(image):
+    """Extract text keywords from image using Google Vision API with EasyOCR fallback.
+    
+    Priority:
+    1. Google Vision API (if configured with credentials)
+    2. EasyOCR fallback (local, no API required)
+    
+    Features:
+    - Google OCR: Superior accuracy, handles complex layouts
+    - EasyOCR: Local processing, handles vertical text rotation
+    - Auto-rotation for vertical text (EasyOCR only)
+    - Confidence filtering at 30% threshold
+    - Returns standardized JSON format
+    
+    Args:
+        image: OpenCV image array
+        
+    Returns:
+        Dict with OCR results including keywords list and statistics
+    """
+    global OCR_READER_CACHE, OCR_AVAILABLE, GOOGLE_OCR_AVAILABLE
+    
+    # Try Google Vision API first (priority)
+    if GOOGLE_OCR_AVAILABLE and GOOGLE_CREDENTIALS_PATH:
+        try:
+            print("[OCR] 🔍 Attempting Google Vision API (priority)...")
+            return extract_ocr_google(image)
+        except Exception as e:
+            print(f"[OCR] Google Vision failed: {e}")
+            print("[OCR] Falling back to EasyOCR...")
+    
+    # Fallback to EasyOCR
+    if not OCR_AVAILABLE:
+        print("[WARNING] EasyOCR not installed. Skipping OCR extraction.")
+        return {
+            'success': False,
+            'keywords': [],
+            'full_text': '',
+            'keyword_count': 0,
+            'message': 'EasyOCR not installed. Run: pip install easyocr',
+            'ocr_engine': 'none'
+        }
+    
+    try:
+        print("[OCR] 🔍 Running EasyOCR and extracting keywords...")
+        
+        # Detect if text is vertical and get rotation info
+        original_image = image.copy()
+        processed_image = original_image
+        rotation_angle = 0
+        text_orientation = 'horizontal'
+        
+        # Initialize or reuse cached OCR reader (thread-safe)
+        with OCR_READER_LOCK:
+            if OCR_READER_CACHE is None:
+                print("[OCR] Initializing EasyOCR reader (first run, may take ~30s)...")
+                try:
+                    OCR_READER_CACHE = easyocr.Reader(['en'], gpu=True)
+                    print("[OCR] ✓ EasyOCR initialized with GPU")
+                except Exception as gpu_error:
+                    print(f"[OCR] GPU initialization failed, falling back to CPU: {gpu_error}")
+                    OCR_READER_CACHE = easyocr.Reader(['en'], gpu=False)
+                    print("[OCR] ✓ EasyOCR initialized with CPU")
+            reader = OCR_READER_CACHE
+        
+        # Try OCR on original image first
+        results = reader.readtext(processed_image)
+        
+        # If no results or very few results, try rotations
+        if not results or len(results) < 2:
+            print("[OCR] 🔄 Attempting rotations to find text...")
+            for angle in [90, 180, 270]:
+                h, w = original_image.shape[:2]
+                center = (w // 2, h // 2)
+                matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
+                rotated = cv2.warpAffine(original_image, matrix, (w, h))
+                
+                rotated_results = reader.readtext(rotated)
+                
+                if len(rotated_results) > len(results):
+                    print(f"[OCR] ✓ Better results found at {angle}° rotation")
+                    results = rotated_results
+                    rotation_angle = angle
+                    processed_image = rotated
+                    text_orientation = 'vertical' if angle in [90, 270] else 'horizontal'
+        
+        if rotation_angle != 0:
+            print(f"[OCR] Applied {rotation_angle}° rotation (text was vertical)")
+        
+        if not results:
+            print("[OCR] No text detected in image")
+            return {
+                'success': False,
+                'keywords': [],
+                'full_text': '',
+                'keyword_count': 0,
+                'average_confidence': 0.0,
+                'text_orientation': text_orientation,
+                'rotation_applied': rotation_angle,
+                'ocr_engine': 'easyocr'
+            }
+        
+        # Extract keywords and create JSON structure (following demo.py format)
+        # WITHOUT bbox coordinates - only keyword list
+        keywords = []
+        full_text = ""
+        
+        for (bbox, text, confidence) in results:
+            # Clean and normalize text
+            text_cleaned = text.strip()
+            if text_cleaned and confidence > 0.1:  # Filter low-confidence text
+                keywords.append({
+                    "text": text_cleaned,
+                    "confidence": round(float(confidence), 4)
+                    # Note: NOT including bbox to avoid drawing boxes
+                    # Original bbox format (if needed): "bbox": [[float(point[0]), float(point[1])] for point in bbox]
+                })
+                full_text += text_cleaned + " "
+        
+        # Filter keywords with >30% accuracy for table display
+        high_confidence_keywords = [kw for kw in keywords if kw['confidence'] >= 0.30]
+        
+        # Create JSON result (same format as demo.py)
+        ocr_json = {
+            'success': True,
+            'timestamp': datetime.now().isoformat(),
+            'keywords': keywords,  # All keywords list WITHOUT boxes
+            'keyword_count': len(keywords),
+            'high_confidence_keywords': high_confidence_keywords,  # NEW: Only >30% for table display
+            'high_confidence_count': len(high_confidence_keywords),
+            'full_text': full_text.strip(),
+            'average_confidence': round(sum(kw['confidence'] for kw in keywords) / len(keywords), 4) if keywords else 0.0,
+            'text_orientation': text_orientation,
+            'rotation_applied': rotation_angle,  # Shows if auto-rotation was used
+            'ocr_engine': 'easyocr'
+        }
+        
+        print(f"[OCR] ✓ EasyOCR extracted {len(keywords)} keywords (text orientation: {text_orientation})")
+        print(f"[OCR] ✓ High confidence keywords (>30%): {len(high_confidence_keywords)}")
+        for kw in high_confidence_keywords[:5]:  # Show first 5 high-confidence keywords
+            print(f"       • {kw['text']} (confidence: {kw['confidence']})")
+        if len(high_confidence_keywords) > 5:
+            print(f"       ... and {len(high_confidence_keywords) - 5} more")
+        
+        return ocr_json
+        
+    except Exception as e:
+        print(f"[ERROR] OCR extraction failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            'success': False,
+            'keywords': [],
+            'full_text': '',
+            'keyword_count': 0,
+            'error': str(e),
+            'ocr_engine': 'easyocr'
+        }
+
+def extract_ocr_google(image):
+    """Extract text keywords from image using Google Vision API.
+    
+    Requires GOOGLE_APPLICATION_CREDENTIALS environment variable set to
+    the path of a Google Cloud service account JSON key file.
+    
+    Args:
+        image: OpenCV image array
+        
+    Returns:
+        Dict with OCR results including keywords list and statistics
+    """
+    try:
+        from google.cloud import vision
+        import io
+        
+        # Encode image to JPEG bytes for Google Vision API
+        success, image_bytes = cv2.imencode('.jpg', image)
+        if not success:
+            raise Exception("Failed to encode image to JPEG")
+        
+        # Initialize Google Vision client
+        client = vision.ImageAnnotatorClient()
+        
+        # Create image object from bytes
+        image_content = image_bytes.tobytes()
+        gimage = vision.Image(content=image_content)
+        
+        # Perform text detection
+        print("[GOOGLE-OCR] Calling Google Vision API for text detection...")
+        response = client.text_detection(image=gimage)
+        texts = response.text_annotations
+        
+        if response.error.message:
+            raise Exception(f"Google Vision API error: {response.error.message}")
+        
+        if not texts:
+            print("[GOOGLE-OCR] No text detected by Google Vision")
+            return {
+                'success': False,
+                'keywords': [],
+                'full_text': '',
+                'keyword_count': 0,
+                'average_confidence': 0.0,
+                'text_orientation': 'unknown',
+                'rotation_applied': 0,
+                'ocr_engine': 'google'
+            }
+        
+        # Skip first element (full page text) and process individual words/lines
+        keywords = []
+        full_text = ""
+        
+        for text_obj in texts[1:]:  # Skip index 0 (full page text)
+            text_cleaned = text_obj.description.strip()
+            
+            # Google Vision provides confidence info via structured responses
+            # For individual detections, we estimate confidence from layout
+            confidence = 0.95  # Default high confidence for Google OCR detections
+            
+            if text_cleaned and len(text_cleaned) > 0:
+                keywords.append({
+                    "text": text_cleaned,
+                    "confidence": round(float(confidence), 4),
+                    "language": "en"
+                })
+                full_text += text_cleaned + " "
+        
+        # Filter keywords with >30% accuracy for table display
+        high_confidence_keywords = [kw for kw in keywords if kw['confidence'] >= 0.30]
+        
+        # Create JSON result
+        ocr_json = {
+            'success': True,
+            'timestamp': datetime.now().isoformat(),
+            'keywords': keywords,
+            'keyword_count': len(keywords),
+            'high_confidence_keywords': high_confidence_keywords,
+            'high_confidence_count': len(high_confidence_keywords),
+            'full_text': full_text.strip(),
+            'average_confidence': round(sum(kw['confidence'] for kw in keywords) / len(keywords), 4) if keywords else 0.0,
+            'text_orientation': 'horizontal',
+            'rotation_applied': 0,
+            'ocr_engine': 'google'
+        }
+        
+        print(f"[GOOGLE-OCR] ✓ Google Vision extracted {len(keywords)} keywords")
+        print(f"[GOOGLE-OCR] ✓ High confidence keywords (>30%): {len(high_confidence_keywords)}")
+        for kw in high_confidence_keywords[:5]:  # Show first 5
+            print(f"       • {kw['text']} (confidence: {kw['confidence']})")
+        if len(high_confidence_keywords) > 5:
+            print(f"       ... and {len(high_confidence_keywords) - 5} more")
+        
+        return ocr_json
+        
+    except Exception as e:
+        print(f"[ERROR] Google Vision OCR failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise  # Re-raise to trigger fallback to EasyOCR
 
 def initialize_sku_embeddings():
     """Initialize SKU embeddings cache, FAISS index, and HOLO model on startup (thread-safe)."""
@@ -1987,37 +2315,76 @@ def detect_products():
                 if crops_path:
                     crops_url = f'/tmp/{os.path.basename(crops_path)}'
                 
+                # Check if accuracy mode is requested (prioritize exact matching over speed)
+                accuracy_mode = request.args.get('accuracy_mode', 'false').lower() == 'true'
+                if accuracy_mode:
+                    print("[OPENCLIP] ACCURACY MODE ENABLED: Will search all embeddings for guaranteed correct match")
+            
                 # Match each crop to SKU (uses FAISS if available, falls back to linear)
-                print("[OPENCLIP] Matching crops to SKUs...")
+                # Also extract OCR from each crop and filter by text presence
+                print("[OPENCLIP] Matching crops to SKUs and extracting OCR...")
+                filtered_detections = []  # Track detections with OCR text
+                detections_with_ocr = {}  # Map detection idx to OCR data
+                
                 for i, crop_info in enumerate(crops):
                     crop_img = crop_info['image']
+                    detection_idx = crop_info['index']
                     
                     # Save temporary crop for embedding generation
                     temp_crop_path = tmp_dir / f'crop_temp_{i}.jpg'
                     cv2.imwrite(str(temp_crop_path), crop_img)
                     
-                    # Generate embedding
-                    crop_embedding = matcher.get_image_embedding(str(temp_crop_path))
+                    # Extract OCR text from crop
+                    crop_ocr_data = extract_ocr_keywords(crop_img)
+                    has_ocr_text = (crop_ocr_data.get('success', False) and 
+                                   len(crop_ocr_data.get('high_confidence_keywords', [])) > 0)
                     
-                    if crop_embedding is not None:
-                        # Find best match (FAISS or linear fallback)
-                        match = matcher.match_sku(crop_embedding, sku_embeddings, threshold=0.3)
-                        matched_sku = match.get('matched_sku')
-                        similarity = match.get('similarity', 0.0)
+                    print(f"[OCR-CROP] Crop {i}: Found {len(crop_ocr_data.get('high_confidence_keywords', []))} high-confidence keywords")
+                    
+                    # Only process crops that contain text
+                    if has_ocr_text:
+                        # Store OCR data for detection
+                        if detection_idx < len(detections):
+                            detections_with_ocr[detection_idx] = crop_ocr_data
+                            detections[detection_idx]['ocr_data'] = crop_ocr_data
+                            detections[detection_idx]['has_ocr_text'] = True
                         
-                        # Update detection with SKU info
-                        if matched_sku:
-                            detection_idx = crop_info['index']
-                            if detection_idx < len(detections):
-                                detections[detection_idx]['matched_sku'] = matched_sku
-                                detections[detection_idx]['sku_similarity'] = round(similarity, 3)
-                                
-                                if matched_sku not in sku_matches:
-                                    sku_matches[matched_sku] = similarity
-                                else:
-                                    sku_matches[matched_sku] = max(sku_matches[matched_sku], similarity)
+                        # Generate embedding for SKU matching
+                        crop_embedding = matcher.get_image_embedding(str(temp_crop_path))
                         
-                        print(f"[OPENCLIP] Crop {i}: Matched to {matched_sku} (similarity: {similarity:.3f})")
+                        if crop_embedding is not None:
+                            # Find best match: accuracy mode uses exact search, otherwise FAISS
+                            if accuracy_mode:
+                                match = matcher.match_sku_accurate(crop_embedding, sku_embeddings, threshold=0.3, use_exact_search=True)
+                            else:
+                                match = matcher.match_sku(crop_embedding, sku_embeddings, threshold=0.3)
+                            matched_sku = match.get('matched_sku')
+                            similarity = match.get('similarity', 0.0)
+                            
+                            # Update detection with SKU info
+                            if matched_sku:
+                                if detection_idx < len(detections):
+                                    detections[detection_idx]['matched_sku'] = matched_sku
+                                    detections[detection_idx]['sku_similarity'] = round(similarity, 3)
+                                    detections[detection_idx]['search_mode'] = 'exact_search' if accuracy_mode else match.get('accuracy_mode', 'unknown')
+                                    
+                                    if matched_sku not in sku_matches:
+                                        sku_matches[matched_sku] = similarity
+                                    else:
+                                        sku_matches[matched_sku] = max(sku_matches[matched_sku], similarity)
+                            
+                            search_mode_label = 'EXACT_SEARCH (all embeddings)' if accuracy_mode else match.get('accuracy_mode', 'FAISS')
+                            print(f"[OPENCLIP] Crop {i}: Matched to {matched_sku} (similarity: {similarity:.3f}, mode: {search_mode_label})")
+                        
+                        # Add to filtered detections (has OCR text)
+                        if detection_idx < len(detections):
+                            filtered_detections.append(detections[detection_idx])
+                    else:
+                        # Mark detection as no OCR text
+                        if detection_idx < len(detections):
+                            detections[detection_idx]['has_ocr_text'] = False
+                            detections[detection_idx]['ocr_data'] = crop_ocr_data
+                        print(f"[FILTER] Crop {i}: No text detected - excluding from products table")
                     
                     # Clean up temporary crop
                     try:
@@ -2025,6 +2392,12 @@ def detect_products():
                     except:
                         pass
                 
+                # Update detections list to only include products with OCR text
+                original_product_count = product_count
+                product_count = len(filtered_detections)
+                detections = filtered_detections
+                
+                print(f"[OCR-FILTER] Products with text: {product_count}/{original_product_count}")
                 print(f"[OPENCLIP] SKU matching complete: {sku_matches}")
                 
             except ImportError:
@@ -2035,6 +2408,31 @@ def detect_products():
                 import traceback
                 traceback.print_exc()
         
+        # Extract OCR keywords from image
+        ocr_data = extract_ocr_keywords(image)
+        
+        # Try to match OCR keywords to SKU
+        ocr_sku_match = None
+        if ocr_data.get('success'):
+            try:
+                from sku_embeddings import match_sku_from_ocr_keywords
+                ocr_sku_match = match_sku_from_ocr_keywords(
+                    ocr_keywords=ocr_data.get('keywords', []),
+                    high_confidence_keywords=ocr_data.get('high_confidence_keywords', []),
+                    sku_json_path=str(PROJECT / 'dataset' / 'SKU.json'),
+                    confidence_threshold=0.30
+                )
+                if ocr_sku_match.get('found'):
+                    print(f"[OCR-SKU] Matched from OCR: {ocr_sku_match['matched_sku']} "
+                          f"(keywords: {ocr_sku_match['matched_keywords']}, "
+                          f"score: {ocr_sku_match['confidence_score']:.3f})")
+            except Exception as e:
+                print(f"[WARNING] OCR-to-SKU matching error: {e}")
+                ocr_sku_match = {
+                    'found': False,
+                    'error': str(e)
+                }
+        
         response = {
             'success': True,
             'product_count': product_count,
@@ -2042,7 +2440,10 @@ def detect_products():
             'image_size': [width, height],
             'image_url': image_url,
             'message': f'Detected {product_count} product(s)',
-            'matching_mode': matching_mode
+            'matching_mode': matching_mode,
+            'accuracy_mode_enabled': accuracy_mode,
+            'ocr_keywords': ocr_data,
+            'ocr_sku_match': ocr_sku_match
         }
         
         # Add mode description

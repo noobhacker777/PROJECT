@@ -4667,6 +4667,130 @@ function displayDetectionResults(data) {
     skuMatchesList.innerHTML = '<div style="padding:10px; color:#999;">No SKU matches found</div>';
   }
 
+  // Show OCR Keywords Table (High Confidence >50%)
+  const ocrSection = document.getElementById('ocrKeywordsSection');
+  if (ocrSection) {
+    const ocrData = data.ocr_keywords || {};
+    const highConfidenceKeywords = ocrData.high_confidence_keywords || [];
+    
+    if (ocrData.success && highConfidenceKeywords.length > 0) {
+      ocrSection.style.display = 'block';
+      
+      // Update OCR stats
+      const ocrStatsDiv = document.getElementById('ocrStats');
+      if (ocrStatsDiv) {
+        ocrStatsDiv.innerHTML = `
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:10px;">
+            <div style="background:#e3f2fd; padding:10px; border-radius:6px; text-align:center;">
+              <div style="font-size:11px; color:#666;">Total Keywords</div>
+              <div style="font-size:20px; font-weight:bold; color:#1976d2;">${ocrData.keyword_count || 0}</div>
+            </div>
+            <div style="background:#f3e5f5; padding:10px; border-radius:6px; text-align:center;">
+              <div style="font-size:11px; color:#666;">High Confidence (>50%)</div>
+              <div style="font-size:20px; font-weight:bold; color:#7b1fa2;">${ocrData.high_confidence_count || 0}</div>
+            </div>
+            <div style="background:#ffe0b2; padding:10px; border-radius:6px; text-align:center;">
+              <div style="font-size:11px; color:#666;">Avg Confidence</div>
+              <div style="font-size:20px; font-weight:bold; color:#f57c00;">${(ocrData.average_confidence * 100).toFixed(1)}%</div>
+            </div>
+            <div style="background:#f1f8e9; padding:10px; border-radius:6px; text-align:center;">
+              <div style="font-size:11px; color:#666;">Text Orientation</div>
+              <div style="font-size:14px; font-weight:bold; color:#558b2f;">${ocrData.text_orientation || 'unknown'}</div>
+            </div>
+          </div>
+        `;
+      }
+      
+      // Populate OCR Keywords Table (>50% confidence only)
+      const ocrTableBody = document.getElementById('ocrKeywordsTableBody');
+      if (ocrTableBody) {
+        ocrTableBody.innerHTML = '';
+        
+        highConfidenceKeywords.forEach((keyword, index) => {
+          const row = document.createElement('tr');
+          row.style.backgroundColor = (index % 2 === 0) ? '#fff' : '#f9f9f9';
+          
+          const confidence = keyword.confidence || 0;
+          const confidencePercent = (confidence * 100).toFixed(1);
+          const confidenceColor = confidence >= 0.8 ? '#28a745' : confidence >= 0.6 ? '#ffc107' : '#0c5460';
+          
+          row.innerHTML = `
+            <td style="padding:10px; border:1px solid #ddd; text-align:center; font-weight:bold;">${index + 1}</td>
+            <td style="padding:10px; border:1px solid #ddd; font-weight:bold; color:#333;">${keyword.text}</td>
+            <td style="padding:10px; border:1px solid #ddd; text-align:center;">
+              <div style="background:${confidenceColor}; color:white; padding:4px 8px; border-radius:4px; font-weight:bold; font-size:12px; display:inline-block;">
+                ${confidencePercent}%
+              </div>
+            </td>
+          `;
+          ocrTableBody.appendChild(row);
+        });
+        
+        // Show full text extracted
+        const fullTextDiv = document.getElementById('ocrFullText');
+        if (fullTextDiv) {
+          fullTextDiv.innerHTML = `<strong>Full Text:</strong> ${ocrData.full_text || '(no text)'}`;
+        }
+      }
+    } else {
+      ocrSection.style.display = 'none';
+    }
+  }
+
+  // Show OCR-based SKU Match (if keywords matched a SKU)
+  const ocrSkuSection = document.getElementById('ocrSkuMatchSection');
+  if (ocrSkuSection) {
+    const ocrSkuMatch = data.ocr_sku_match || {};
+    
+    if (ocrSkuMatch.found) {
+      ocrSkuSection.style.display = 'block';
+      
+      const matchedSku = ocrSkuMatch.matched_sku || 'Unknown';
+      const confidenceScore = ocrSkuMatch.confidence_score || 0;
+      const confidencePercent = (confidenceScore * 100).toFixed(1);
+      const searchSource = ocrSkuMatch.search_source || 'unknown';
+      const matchedKeywords = ocrSkuMatch.matched_keywords || [];
+      
+      // Determine color based on confidence
+      let scoreColor = '#28a745';
+      if (confidenceScore < 0.6) scoreColor = '#ffc107';
+      if (confidenceScore < 0.4) scoreColor = '#dc3545';
+      
+      const ocrSkuContent = document.getElementById('ocrSkuMatchContent');
+      if (ocrSkuContent) {
+        ocrSkuContent.innerHTML = `
+          <div style="display:grid; grid-template-columns:1fr auto; gap:15px; align-items:center;">
+            <div style="display:flex; flex-direction:column; gap:10px;">
+              <div>
+                <div style="font-size:12px; color:#666; margin-bottom:3px;">🎯 SKU Found from OCR</div>
+                <div style="font-size:24px; font-weight:bold; color:#1a73e8;">${matchedSku}</div>
+              </div>
+              <div>
+                <div style="font-size:12px; color:#666; margin-bottom:5px;">Matched Keywords:</div>
+                <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                  ${matchedKeywords.map(kw => 
+                    `<span style="background:#e8f5e9; color:#2e7d32; padding:4px 10px; border-radius:12px; font-size:12px; font-weight:bold;">
+                      ${kw}
+                    </span>`
+                  ).join('')}
+                </div>
+              </div>
+              <div style="font-size:12px; color:#666;">
+                <strong>Source:</strong> ${searchSource === 'high_confidence' ? '⭐ High-Confidence Keywords' : '🔍 All Keywords'}
+              </div>
+            </div>
+            <div style="background:${scoreColor}; color:white; padding:20px; border-radius:8px; text-align:center; min-width:100px;">
+              <div style="font-size:12px; opacity:0.9; margin-bottom:5px;">Confidence</div>
+              <div style="font-size:32px; font-weight:bold;">${confidencePercent}%</div>
+            </div>
+          </div>
+        `;
+      }
+    } else {
+      ocrSkuSection.style.display = 'none';
+    }
+  }
+
   // Show crops if available
   if (data.crops_url) {
     document.getElementById('cropsSection').style.display = 'block';
