@@ -2125,8 +2125,10 @@ def detect_products():
         
         # Initialize SKU matching
         crops_url = None
+        crops_path = None
         sku_matches = {}
         matching_mode = 'none'
+        accuracy_mode = request.args.get('accuracy_mode', 'false').lower() == 'true'
         
         if detections:
             try:
@@ -2179,14 +2181,13 @@ def detect_products():
                     crops_url = f'/tmp/{os.path.basename(crops_path)}'
                 
                 # Check if accuracy mode is requested (prioritize exact matching over speed)
-                accuracy_mode = request.args.get('accuracy_mode', 'false').lower() == 'true'
                 if accuracy_mode:
                     print("[OPENCLIP] ACCURACY MODE ENABLED: Will search all embeddings for guaranteed correct match")
             
                 # Match each crop to SKU (uses FAISS if available, falls back to linear)
                 # Also extract OCR from each crop and filter by text presence
                 print("[OPENCLIP] Matching crops to SKUs and extracting OCR...")
-                filtered_detections = []  # Track detections with OCR text
+                filtered_detections = []  # Track detections with valid SKU matches
                 detections_with_ocr = {}  # Map detection idx to OCR data
                 
                 for i, crop_info in enumerate(crops):
@@ -2199,71 +2200,56 @@ def detect_products():
                     
                     # Extract OCR text from crop
                     crop_ocr_data = extract_ocr_keywords(crop_img)
-                    has_ocr_text = (crop_ocr_data.get('success', False) and 
-                                   len(crop_ocr_data.get('high_confidence_keywords', [])) > 0)
+                    keywords = crop_ocr_data.get('keywords', []) or []
+                    high_conf_keywords = crop_ocr_data.get('high_confidence_keywords', []) or []
+                    full_text = (crop_ocr_data.get('full_text') or '').strip()
+                    has_ocr_text = bool(keywords) or bool(full_text)
                     
-                    print(f"[OCR-CROP] Crop {i}: Found {len(crop_ocr_data.get('high_confidence_keywords', []))} high-confidence keywords")
+                    print(f"[OCR-CROP] Crop {i}: Found {len(high_conf_keywords)} high-confidence keywords")
                     
-                    # Only process crops that contain text
-                    if has_ocr_text:
-                        # Store OCR data for detection
-                        if detection_idx < len(detections):
-                            detections_with_ocr[detection_idx] = crop_ocr_data
-                            detections[detection_idx]['ocr_data'] = crop_ocr_data
-                            detections[detection_idx]['has_ocr_text'] = True
-                        
-                        # Check if "bubbly" text is detected in OCR
-                        ocr_full_text = crop_ocr_data.get('full_text', '').lower()
-                        has_bubbly_text = 'bubbly' in ocr_full_text
-                        
-                        # Generate embedding for SKU matching
-                        crop_embedding = matcher.get_image_embedding(str(temp_crop_path))
-                        
-                        matched_sku = None
-                        similarity = 0.0
-                        if crop_embedding is not None:
-                            # Find best match: accuracy mode uses exact search, otherwise FAISS
-                            if accuracy_mode:
-                                match = matcher.match_sku_accurate(crop_embedding, sku_embeddings, threshold=0.3, use_exact_search=True)
+                    # Persist OCR metadata even if OCR failed or returned low confidence text.
+                    if detection_idx < len(detections):
+                        detections_with_ocr[detection_idx] = crop_ocr_data
+                        detections[detection_idx]['ocr_data'] = crop_ocr_data
+                        detections[detection_idx]['has_ocr_text'] = has_ocr_text
+
+                    # Always run FAISS/embedding match; OCR is only a confirmation layer.
+                    crop_embedding = matcher.get_image_embedding(str(temp_crop_path))
+
+                    matched_sku = None
+                    similarity = 0.0
+                    if crop_embedding is not None:
+                        # Find best match: accuracy mode uses exact search, otherwise FAISS
+                        if accuracy_mode:
+                            match = matcher.match_sku_accurate(crop_embedding, sku_embeddings, threshold=0.4, use_exact_search=True)
+                        else:
+                            match = matcher.match_sku(crop_embedding, sku_embeddings, threshold=0.4)
+                        matched_sku = match.get('matched_sku')
+                        similarity = match.get('similarity', 0.0)
+
+                        # Update detection with SKU info
+                        if matched_sku and detection_idx < len(detections):
+                            detections[detection_idx]['matched_sku'] = matched_sku
+                            detections[detection_idx]['sku_similarity'] = round(similarity, 3)
+                            detections[detection_idx]['search_mode'] = 'exact_search' if accuracy_mode else match.get('accuracy_mode', 'unknown')
+
+                            if matched_sku not in sku_matches:
+                                sku_matches[matched_sku] = similarity
                             else:
-                                match = matcher.match_sku(crop_embedding, sku_embeddings, threshold=0.3)
-                            matched_sku = match.get('matched_sku')
-                            similarity = match.get('similarity', 0.0)
-                            
-                            # Update detection with SKU info
-                            if matched_sku:
-                                if detection_idx < len(detections):
-                                    detections[detection_idx]['matched_sku'] = matched_sku
-                                    detections[detection_idx]['sku_similarity'] = round(similarity, 3)
-                                    detections[detection_idx]['search_mode'] = 'exact_search' if accuracy_mode else match.get('accuracy_mode', 'unknown')
-                                    
-                                    if matched_sku not in sku_matches:
-                                        sku_matches[matched_sku] = similarity
-                                    else:
-                                        sku_matches[matched_sku] = max(sku_matches[matched_sku], similarity)
-                            
-                            search_mode_label = 'EXACT_SEARCH (all embeddings)' if accuracy_mode else match.get('accuracy_mode', 'FAISS')
-                            print(f"[OPENCLIP] Crop {i}: Matched to {matched_sku} (similarity: {similarity:.3f}, mode: {search_mode_label})")
-                        
-                        # BUBBLY CHECK: If "bubbly" text is detected, only add if matched SKU also contains "bubbly"
-                        should_add_to_table = True
-                        if has_bubbly_text:
-                            sku_lower = (matched_sku or '').lower()
-                            if 'bubbly' not in sku_lower:
-                                should_add_to_table = False
-                                print(f"[FILTER-BUBBLY] Crop {i}: Contains 'bubbly' text but matched SKU '{matched_sku}' does not - excluding")
-                            else:
-                                print(f"[INCLUDE-BUBBLY] Crop {i}: Contains 'bubbly' text and SKU '{matched_sku}' contains 'bubbly' - including")
-                        
-                        # Add to filtered detections only if conditions are met
-                        if should_add_to_table and detection_idx < len(detections):
+                                sku_matches[matched_sku] = max(sku_matches[matched_sku], similarity)
+
+                        search_mode_label = 'EXACT_SEARCH (all embeddings)' if accuracy_mode else match.get('accuracy_mode', 'FAISS')
+                        print(f"[OPENCLIP] Crop {i}: Matched to {matched_sku} (similarity: {similarity:.3f}, mode: {search_mode_label})")
+
+                    # Inclusion rule:
+                    # - Always require FAISS/OpenCLIP SKU match.
+                    # - If OCR is available, keep text flags for downstream confidence logic.
+                    # - If OCR is unavailable, do not drop detections.
+                    if detection_idx < len(detections):
+                        if matched_sku:
                             filtered_detections.append(detections[detection_idx])
-                    else:
-                        # Mark detection as no OCR text
-                        if detection_idx < len(detections):
-                            detections[detection_idx]['has_ocr_text'] = False
-                            detections[detection_idx]['ocr_data'] = crop_ocr_data
-                        print(f"[FILTER] Crop {i}: No text detected - excluding from products table")
+                        else:
+                            print(f"[FILTER] Crop {i}: No SKU match from FAISS/OpenCLIP - excluding from products table")
                     
                     # Clean up temporary crop
                     try:
@@ -2271,12 +2257,12 @@ def detect_products():
                     except:
                         pass
                 
-                # Update detections list to only include products with OCR text
+                # Update detections list to only include products with valid SKU matches
                 original_product_count = product_count
                 product_count = len(filtered_detections)
                 detections = filtered_detections
                 
-                print(f"[OCR-FILTER] Products with text: {product_count}/{original_product_count}")
+                print(f"[FILTER] Products with SKU match: {product_count}/{original_product_count}")
                 print(f"[OPENCLIP] SKU matching complete: {sku_matches}")
                 
             except ImportError:
@@ -2630,64 +2616,179 @@ def scan_image_simple():
         else:
             crops_url = None
         
-        # SKU Matching (using cached embeddings)
+        # Helper function to extract keywords from OCR text
+        def extract_keywords(text):
+            """Extract keywords from OCR text."""
+            if not text:
+                return []
+            # Split by spaces and punctuation, convert to lowercase, filter short words
+            import re
+            words = re.findall(r'\b\w+\b', text.lower())
+            # Filter out common stop words and short words
+            stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'is', 'are', 'was', 'be'}
+            keywords = [w for w in words if len(w) > 2 and w not in stop_words]
+            return keywords
+        
+        # Helper function to check if SKU name appears in OCR text (wrapper name)
+        def validate_sku_in_ocr_text(sku_name, ocr_text):
+            """Check if SKU name appears in OCR text (product wrapper).
+            
+            Returns:
+                (is_valid, match_score, matched_text)
+                - is_valid: True if SKU name found in OCR text
+                - match_score: How many parts of SKU name found (0.0-1.0)
+                - matched_text: The matching portion of text
+            """
+            if not sku_name or not ocr_text:
+                return False, 0.0, ""
+            
+            import re
+            sku_lower = sku_name.lower()
+            ocr_lower = ocr_text.lower()
+            
+            # Direct substring match
+            if sku_lower in ocr_lower:
+                return True, 1.0, sku_name
+            
+            # Try to match individual words from SKU name
+            sku_words = sku_lower.split()
+            ocr_words = ocr_lower.split()
+            
+            matches = sum(1 for word in sku_words if word in ocr_words)
+            match_ratio = matches / len(sku_words) if sku_words else 0
+            
+            if matches > 0:
+                matched_text = " ".join([w for w in sku_words if w in ocr_words])
+                return match_ratio >= 0.5, match_ratio, matched_text
+            
+            return False, 0.0, ""
+        
+        # SKU Matching (using cached embeddings) + OCR validation
         sku_matches = {}
+        ocr_results_by_detection = {}  # Store OCR text for each detection
+        
         try:
             # Initialize SKU embeddings if not already done
             if not SKU_EMBEDDINGS_INITIALIZED:
                 initialize_sku_embeddings()
             
+            # Initialize OCR reader if enabled
+            ocr_reader = None
+            if OCR_AVAILABLE:
+                try:
+                    with OCR_READER_LOCK:
+                        if OCR_READER_CACHE is None:
+                            print("[OCR] Initializing OCR reader...")
+                            OCR_READER_CACHE = easyocr.Reader(['en'], gpu=True)
+                        ocr_reader = OCR_READER_CACHE
+                except Exception as e:
+                    print(f"[OCR] Warning: Could not initialize OCR reader: {e}")
+            
             if SKU_EMBEDDINGS_CACHE and MATCHER_INSTANCE:
-                # Match detected crops to cached SKU embeddings
+                # Match detected crops to cached SKU embeddings + OCR wrapper text validation
                 for i, crop_info in enumerate(crops):
                     crop_img = crop_info['image']
                     temp_crop_path = tmp_dir / f'crop_temp_{i}.jpg'
+                    detection_idx = crop_info['index']
                     
                     try:
                         cv2.imwrite(str(temp_crop_path), crop_img)
+                        
+                        # FAISS/Embedding-based SKU matching
                         crop_embedding = MATCHER_INSTANCE.get_image_embedding(str(temp_crop_path))
+                        
+                        faiss_match = None
+                        faiss_similarity = -1
                         
                         if crop_embedding is not None:
                             # Find best matching SKU
-                            best_match = None
-                            best_similarity = -1
-                            
                             for sku_name, sku_embedding in SKU_EMBEDDINGS_CACHE.items():
                                 # Cosine similarity
                                 similarity = np.dot(crop_embedding, sku_embedding) / (
                                     np.linalg.norm(crop_embedding) * np.linalg.norm(sku_embedding) + 1e-8
                                 )
                                 
-                                if similarity > best_similarity and similarity >= 0.3:
-                                    best_similarity = similarity
-                                    best_match = sku_name
-                            
-                            if best_match and best_similarity > 0:
-                                detection_idx = crop_info['index']
-                                if detection_idx < len(detections):
-                                    detections[detection_idx]['matched_sku'] = best_match
-                                    detections[detection_idx]['sku_similarity'] = round(float(best_similarity), 3)
+                                if similarity > faiss_similarity and similarity >= 0.3:
+                                    faiss_similarity = similarity
+                                    faiss_match = sku_name
+                        
+                        # OCR Text detection + wrapper validation
+                        ocr_text = ""
+                        ocr_keywords = []
+                        ocr_detected = False
+                        sku_in_wrapper = False
+                        wrapper_match_score = 0.0
+                        matched_wrapper_text = ""
+                        
+                        if ocr_reader is not None:
+                            try:
+                                ocr_results = ocr_reader.readtext(crop_img)
+                                if ocr_results:
+                                    ocr_detected = True
+                                    ocr_text = " ".join([text[1] for text in ocr_results])
+                                    ocr_keywords = extract_keywords(ocr_text)
+                                    
+                                    # Validate: Check if SKU name appears in wrapper text (OCR)
+                                    if faiss_match:
+                                        sku_in_wrapper, wrapper_match_score, matched_wrapper_text = validate_sku_in_ocr_text(faiss_match, ocr_text)
+                                        
+                                        if sku_in_wrapper:
+                                            print(f"[VALIDATION] Detection {detection_idx}: ✓ SKU '{faiss_match}' FOUND in wrapper text = '{ocr_text[:60]}...'")
+                                        else:
+                                            print(f"[VALIDATION] Detection {detection_idx}: ✗ SKU '{faiss_match}' NOT in wrapper text = '{ocr_text[:60]}...' (match: {wrapper_match_score:.1%})")
+                                    
+                                    print(f"[OCR] Detection {detection_idx}: Wrapper text: '{ocr_text}' | Keywords: {ocr_keywords}")
+                            except Exception as e:
+                                print(f"[OCR] Warning reading crop {i}: {e}")
+                        
+                        # Update detection with both FAISS and OCR wrapper validation results
+                        if detection_idx < len(detections):
+                            if faiss_match and faiss_similarity > 0:
+                                detections[detection_idx]['matched_sku'] = faiss_match
+                                detections[detection_idx]['sku_similarity'] = round(float(faiss_similarity), 3)
                                 
-                                if best_match not in sku_matches or best_similarity > sku_matches.get(best_match, 0):
-                                    sku_matches[best_match] = best_similarity
+                                if faiss_match not in sku_matches or faiss_similarity > sku_matches.get(faiss_match, 0):
+                                    sku_matches[faiss_match] = faiss_similarity
+                            
+                            # Add OCR wrapper validation results to detection
+                            if ocr_detected:
+                                detections[detection_idx]['ocr_text'] = ocr_text
+                                detections[detection_idx]['ocr_keywords'] = ocr_keywords
+                                detections[detection_idx]['ocr_detected'] = True
+                                detections[detection_idx]['sku_in_wrapper'] = sku_in_wrapper  # Main validation!
+                                detections[detection_idx]['wrapper_match_score'] = round(wrapper_match_score, 3)
+                                detections[detection_idx]['matched_wrapper_text'] = matched_wrapper_text
+                            else:
+                                detections[detection_idx]['ocr_detected'] = False
+                                detections[detection_idx]['sku_in_wrapper'] = False
+                            
+                            ocr_results_by_detection[detection_idx] = {
+                                'text': ocr_text,
+                                'keywords': ocr_keywords,
+                                'detected': ocr_detected,
+                                'sku_in_wrapper': sku_in_wrapper,
+                                'wrapper_match_score': wrapper_match_score
+                            }
+                    
                     finally:
                         try:
                             temp_crop_path.unlink(missing_ok=True)
                         except:
                             pass
+        
         except Exception as e:
             print(f"[SKU MATCH] Error: {e}")
             import traceback
             traceback.print_exc()
         
-        # Build JSON response
+        # Build JSON response with deduplicated results (one entry per box, not duplicated by method)
         response_data = {
             'success': True,
-            'product_count': product_count,
+            'product_count': product_count,  # Count is based on unique YOLO boxes, not methods used
             'detections': detections,
             'image_size': [width, height],
             'image_url': image_url,
-            'message': f'Detected {product_count} product(s)'
+            'message': f'Detected {product_count} product(s) - verified by FAISS/OCR'
         }
         
         if crops_url:
@@ -2695,6 +2796,60 @@ def scan_image_simple():
         
         if sku_matches:
             response_data['sku_matches'] = {k: round(float(v), 3) for k, v in sku_matches.items()}
+        
+        # Filter detections: Only count products with valid SKU matching
+        # Validation: SKU name == Product name in wrapper text (OCR)
+        validated_detections = []
+        validated_count = 0
+        
+        for det in detections:
+            has_faiss_match = det.get('matched_sku', 'Unknown') != 'Unknown' and det.get('sku_similarity', 0) >= 0.3
+            sku_in_wrapper = det.get('sku_in_wrapper', False)  # Required: SKU name found in wrapper text
+            has_ocr_text = det.get('ocr_detected', False)
+            wrapper_score = det.get('wrapper_match_score', 0.0)
+            
+            # Validation logic:
+            # MUST HAVE: FAISS match
+            # VALIDATE WITH: OCR wrapper text (if available)
+            
+            is_validated = False
+            validation_level = 'INVALID'
+            
+            if has_faiss_match:
+                if has_ocr_text:
+                    if sku_in_wrapper:
+                        # BEST: FAISS match + wrapper text validation passed
+                        is_validated = True
+                        validation_level = 'HIGH'
+                        det['validation_status'] = '✓ VALIDATED'
+                        print(f"[RESULT] Detection {det['id']}: ✓✓ HIGH confidence - SKU match + wrapper verified ({wrapper_score:.1%})")
+                    else:
+                        # WARNING: FAISS match but wrapper doesn't contain SKU
+                        is_validated = True  # Still count it, but mark as low confidence
+                        validation_level = 'LOW'
+                        det['validation_status'] = '⚠ FAISS ONLY'
+                        print(f"[RESULT] Detection {det['id']}: ⚠ LOW confidence - FAISS match but SKU NOT in wrapper ({wrapper_score:.1%})")
+                else:
+                    # MEDIUM: FAISS match but no OCR text to validate
+                    is_validated = True
+                    validation_level = 'MEDIUM'
+                    det['validation_status'] = '⚡ FAISS ONLY (No OCR)'
+                    print(f"[RESULT] Detection {det['id']}: ⚡ MEDIUM confidence - FAISS match, no wrapper text detected")
+            
+            det['validation_level'] = validation_level
+            
+            # Only include validated detections (FAISS match required)
+            if is_validated:
+                validated_detections.append(det)
+                validated_count += 1
+        
+        # Update response with validated count (one entry per box, no duplicates)
+        response_data['product_count'] = validated_count
+        response_data['detections'] = validated_detections
+        response_data['message'] = f'Detected {validated_count} confirmed product(s) - SKU name validated in wrapper'
+        
+        if validated_count < product_count:
+            response_data['note'] = f'{product_count} boxes detected by YOLO, {validated_count} confirmed by FAISS+OCR wrapper validation'
         
         # Schedule cleanup in background without waiting
         def cleanup_detection_files():
