@@ -36,25 +36,6 @@ except ImportError:
 PROJECT = Path(__file__).resolve().parent
 APP = Flask(__name__, static_folder=str(PROJECT / 'static'), static_url_path='')
 
-# Google Vision API imports (after PROJECT is defined)
-try:
-    from google.cloud import vision
-    GOOGLE_OCR_AVAILABLE = True
-    # Check for google_api.json in PROJECT folder first, then fall back to environment variable
-    google_api_file = PROJECT / 'google_api.json'
-    if google_api_file.exists():
-        GOOGLE_CREDENTIALS_PATH = str(google_api_file)
-        os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = GOOGLE_CREDENTIALS_PATH
-        print(f"[GOOGLE-OCR] ✓ Auto-detected credentials: {GOOGLE_CREDENTIALS_PATH}")
-    else:
-        GOOGLE_CREDENTIALS_PATH = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', None)
-        if GOOGLE_CREDENTIALS_PATH:
-            print(f"[GOOGLE-OCR] Using credentials from env: {GOOGLE_CREDENTIALS_PATH}")
-except ImportError:
-    GOOGLE_OCR_AVAILABLE = False
-    GOOGLE_CREDENTIALS_PATH = None
-    print("[INFO] Google Vision API not installed. Will use EasyOCR fallback.")
-
 # Global cache for SKU embeddings (loaded once on startup)
 SKU_EMBEDDINGS_CACHE = {}
 SKU_EMBEDDINGS_INITIALIZED = False
@@ -149,18 +130,15 @@ def detect_and_rotate_vertical_text(image):
 
 
 def extract_ocr_keywords(image):
-    """Extract text keywords from image using Google Vision API with EasyOCR fallback.
+    """Extract text keywords from image using EasyOCR.
     
-    Priority:
-    1. Google Vision API (if configured with credentials)
-    2. EasyOCR fallback (local, no API required)
-    
-    Features:
-    - Google OCR: Superior accuracy, handles complex layouts
-    - EasyOCR: Local processing, handles vertical text rotation
-    - Auto-rotation for vertical text (EasyOCR only)
-    - Confidence filtering at 30% threshold
-    - Returns standardized JSON format
+    This implements the same OCR logic as demo.py:
+    - Initializes EasyOCR reader (cached for performance)
+    - Detects vertical text and auto-rotates if needed
+    - Extracts all text with bounding boxes
+    - Returns JSON formatted keywords list
+    - Includes confidence scores and image metadata
+    - Auto-rotates vertical text without drawing boxes
     
     Args:
         image: OpenCV image array
@@ -168,18 +146,8 @@ def extract_ocr_keywords(image):
     Returns:
         Dict with OCR results including keywords list and statistics
     """
-    global OCR_READER_CACHE, OCR_AVAILABLE, GOOGLE_OCR_AVAILABLE
+    global OCR_READER_CACHE, OCR_AVAILABLE
     
-    # Try Google Vision API first (priority)
-    if GOOGLE_OCR_AVAILABLE and GOOGLE_CREDENTIALS_PATH:
-        try:
-            print("[OCR] 🔍 Attempting Google Vision API (priority)...")
-            return extract_ocr_google(image)
-        except Exception as e:
-            print(f"[OCR] Google Vision failed: {e}")
-            print("[OCR] Falling back to EasyOCR...")
-    
-    # Fallback to EasyOCR
     if not OCR_AVAILABLE:
         print("[WARNING] EasyOCR not installed. Skipping OCR extraction.")
         return {
@@ -187,12 +155,11 @@ def extract_ocr_keywords(image):
             'keywords': [],
             'full_text': '',
             'keyword_count': 0,
-            'message': 'EasyOCR not installed. Run: pip install easyocr',
-            'ocr_engine': 'none'
+            'message': 'EasyOCR not installed. Run: pip install easyocr'
         }
     
     try:
-        print("[OCR] 🔍 Running EasyOCR and extracting keywords...")
+        print("[OCR] 🔍 Running OCR and extracting keywords...")
         
         # Detect if text is vertical and get rotation info
         original_image = image.copy()
@@ -246,8 +213,7 @@ def extract_ocr_keywords(image):
                 'keyword_count': 0,
                 'average_confidence': 0.0,
                 'text_orientation': text_orientation,
-                'rotation_applied': rotation_angle,
-                'ocr_engine': 'easyocr'
+                'rotation_applied': rotation_angle
             }
         
         # Extract keywords and create JSON structure (following demo.py format)
@@ -281,11 +247,10 @@ def extract_ocr_keywords(image):
             'full_text': full_text.strip(),
             'average_confidence': round(sum(kw['confidence'] for kw in keywords) / len(keywords), 4) if keywords else 0.0,
             'text_orientation': text_orientation,
-            'rotation_applied': rotation_angle,  # Shows if auto-rotation was used
-            'ocr_engine': 'easyocr'
+            'rotation_applied': rotation_angle  # Shows if auto-rotation was used
         }
         
-        print(f"[OCR] ✓ EasyOCR extracted {len(keywords)} keywords (text orientation: {text_orientation})")
+        print(f"[OCR] ✓ Extracted {len(keywords)} keywords from image (text orientation: {text_orientation})")
         print(f"[OCR] ✓ High confidence keywords (>30%): {len(high_confidence_keywords)}")
         for kw in high_confidence_keywords[:5]:  # Show first 5 high-confidence keywords
             print(f"       • {kw['text']} (confidence: {kw['confidence']})")
@@ -303,110 +268,8 @@ def extract_ocr_keywords(image):
             'keywords': [],
             'full_text': '',
             'keyword_count': 0,
-            'error': str(e),
-            'ocr_engine': 'easyocr'
+            'error': str(e)
         }
-
-def extract_ocr_google(image):
-    """Extract text keywords from image using Google Vision API.
-    
-    Requires GOOGLE_APPLICATION_CREDENTIALS environment variable set to
-    the path of a Google Cloud service account JSON key file.
-    
-    Args:
-        image: OpenCV image array
-        
-    Returns:
-        Dict with OCR results including keywords list and statistics
-    """
-    try:
-        from google.cloud import vision
-        import io
-        
-        # Encode image to JPEG bytes for Google Vision API
-        success, image_bytes = cv2.imencode('.jpg', image)
-        if not success:
-            raise Exception("Failed to encode image to JPEG")
-        
-        # Initialize Google Vision client
-        client = vision.ImageAnnotatorClient()
-        
-        # Create image object from bytes
-        image_content = image_bytes.tobytes()
-        gimage = vision.Image(content=image_content)
-        
-        # Perform text detection
-        print("[GOOGLE-OCR] Calling Google Vision API for text detection...")
-        response = client.text_detection(image=gimage)
-        texts = response.text_annotations
-        
-        if response.error.message:
-            raise Exception(f"Google Vision API error: {response.error.message}")
-        
-        if not texts:
-            print("[GOOGLE-OCR] No text detected by Google Vision")
-            return {
-                'success': False,
-                'keywords': [],
-                'full_text': '',
-                'keyword_count': 0,
-                'average_confidence': 0.0,
-                'text_orientation': 'unknown',
-                'rotation_applied': 0,
-                'ocr_engine': 'google'
-            }
-        
-        # Skip first element (full page text) and process individual words/lines
-        keywords = []
-        full_text = ""
-        
-        for text_obj in texts[1:]:  # Skip index 0 (full page text)
-            text_cleaned = text_obj.description.strip()
-            
-            # Google Vision provides confidence info via structured responses
-            # For individual detections, we estimate confidence from layout
-            confidence = 0.95  # Default high confidence for Google OCR detections
-            
-            if text_cleaned and len(text_cleaned) > 0:
-                keywords.append({
-                    "text": text_cleaned,
-                    "confidence": round(float(confidence), 4),
-                    "language": "en"
-                })
-                full_text += text_cleaned + " "
-        
-        # Filter keywords with >30% accuracy for table display
-        high_confidence_keywords = [kw for kw in keywords if kw['confidence'] >= 0.30]
-        
-        # Create JSON result
-        ocr_json = {
-            'success': True,
-            'timestamp': datetime.now().isoformat(),
-            'keywords': keywords,
-            'keyword_count': len(keywords),
-            'high_confidence_keywords': high_confidence_keywords,
-            'high_confidence_count': len(high_confidence_keywords),
-            'full_text': full_text.strip(),
-            'average_confidence': round(sum(kw['confidence'] for kw in keywords) / len(keywords), 4) if keywords else 0.0,
-            'text_orientation': 'horizontal',
-            'rotation_applied': 0,
-            'ocr_engine': 'google'
-        }
-        
-        print(f"[GOOGLE-OCR] ✓ Google Vision extracted {len(keywords)} keywords")
-        print(f"[GOOGLE-OCR] ✓ High confidence keywords (>30%): {len(high_confidence_keywords)}")
-        for kw in high_confidence_keywords[:5]:  # Show first 5
-            print(f"       • {kw['text']} (confidence: {kw['confidence']})")
-        if len(high_confidence_keywords) > 5:
-            print(f"       ... and {len(high_confidence_keywords) - 5} more")
-        
-        return ocr_json
-        
-    except Exception as e:
-        print(f"[ERROR] Google Vision OCR failed: {e}")
-        import traceback
-        traceback.print_exc()
-        raise  # Re-raise to trigger fallback to EasyOCR
 
 def initialize_sku_embeddings():
     """Initialize SKU embeddings cache, FAISS index, and HOLO model on startup (thread-safe)."""
