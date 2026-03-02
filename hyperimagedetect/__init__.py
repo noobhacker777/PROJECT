@@ -16,10 +16,16 @@ if not os.environ.get("OMP_NUM_THREADS"):
 from hyperimagedetect.utils import ASSETS, SETTINGS
 from hyperimagedetect.utils.checks import check_holo as checks
 
+# Import HOLO directly to ensure it's available
+try:
+    from hyperimagedetect.models import HOLO
+except ImportError as e:
+    # Fallback to None if import fails - will be handled by __getattr__
+    HOLO = None
 
 settings = SETTINGS
 
-MODELS = ("HOLO",)
+MODELS = ("HOLO")
 
 __all__ = (
     "__version__",
@@ -30,14 +36,16 @@ __all__ = (
 )
 
 if TYPE_CHECKING:
-
     from hyperimagedetect.models import HOLO
 
 
 def __getattr__(name: str):
     """Lazy-import model classes on first access."""
     if name in MODELS:
-        return getattr(importlib.import_module("hyperimagedetect.models"), name)
+        try:
+            return getattr(importlib.import_module("hyperimagedetect.models"), name)
+        except (ImportError, AttributeError) as e:
+            raise AttributeError(f"module {__name__} has no attribute {name}") from e
     raise AttributeError(f"module {__name__} has no attribute {name}")
 
 
