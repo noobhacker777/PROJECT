@@ -2288,6 +2288,19 @@ def detect_products():
                 
                 detections = list(box_dedup.values())
                 product_count = len(detections)
+
+                # Keep sku_matches aligned with final detections only.
+                final_sku_matches = {}
+                for det in detections:
+                    sku_name = det.get('matched_sku')
+                    if not sku_name or sku_name == 'Unknown':
+                        continue
+                    try:
+                        sim_value = float(det.get('sku_similarity', 0.0) or 0.0)
+                    except (TypeError, ValueError):
+                        sim_value = 0.0
+                    final_sku_matches[sku_name] = max(final_sku_matches.get(sku_name, 0.0), sim_value)
+                sku_matches = final_sku_matches
                 
                 print(f"[FILTER] Products after OCR filter: {len(ocr_filtered)}/{original_product_count}")
                 print(f"[FILTER] Products after box dedup: {product_count}")
@@ -2802,9 +2815,6 @@ def scan_image_simple():
         if crops_url:
             response_data['crops_url'] = crops_url
         
-        if sku_matches:
-            response_data['sku_matches'] = {k: round(float(v), 3) for k, v in sku_matches.items()}
-        
         # Filter detections: Only count products with valid SKU matching
         # Validation: SKU name == Product name in wrapper text (OCR)
         validated_detections = []
@@ -2855,6 +2865,23 @@ def scan_image_simple():
         response_data['product_count'] = validated_count
         response_data['detections'] = validated_detections
         response_data['message'] = f'Detected {validated_count} confirmed product(s) - SKU name validated in wrapper'
+
+        # Keep sku_matches aligned with final validated detections only.
+        final_sku_matches = {}
+        for det in validated_detections:
+            sku_name = det.get('matched_sku')
+            if not sku_name or sku_name == 'Unknown':
+                continue
+            try:
+                sim_value = float(det.get('sku_similarity', 0.0) or 0.0)
+            except (TypeError, ValueError):
+                sim_value = 0.0
+            final_sku_matches[sku_name] = max(final_sku_matches.get(sku_name, 0.0), sim_value)
+
+        if final_sku_matches:
+            response_data['sku_matches'] = {k: round(float(v), 3) for k, v in final_sku_matches.items()}
+        else:
+            response_data.pop('sku_matches', None)
         
         if validated_count < product_count:
             response_data['note'] = f'{product_count} boxes detected by YOLO, {validated_count} confirmed by FAISS+OCR wrapper validation'
