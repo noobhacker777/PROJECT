@@ -49,6 +49,57 @@ OCR_READER_CACHE = None
 OCR_READER_LOCK = threading.Lock()
 
 
+def filter_nested_boxes(detections, overlap_threshold=0.8):
+    """
+    Remove boxes that are largely contained within another box.
+    Overlap is intersection area divided by the smaller box area.
+    """
+    if not detections:
+        return detections
+
+    def area(box):
+        return max(box[2], 0) * max(box[3], 0)
+
+    def intersection(a, b):
+        ax1, ay1, aw, ah = a
+        bx1, by1, bw, bh = b
+        ax2, ay2 = ax1 + aw, ay1 + ah
+        bx2, by2 = bx1 + bw, by1 + bh
+        inter_w = max(0, min(ax2, bx2) - max(ax1, bx1))
+        inter_h = max(0, min(ay2, by2) - max(ay1, by1))
+        return inter_w * inter_h
+
+    # Sort by area desc then confidence desc so larger/more confident are kept
+    sorted_dets = sorted(
+        detections,
+        key=lambda d: (
+            -(d.get('box', [0, 0, 0, 0])[2] * d.get('box', [0, 0, 0, 0])[3]),
+            -d.get('confidence', 0)
+        )
+    )
+
+    kept = []
+    for det in sorted_dets:
+        box_a = det.get('box', [0, 0, 0, 0])
+        area_a = area(box_a)
+        if area_a == 0:
+            continue
+
+        contained = False
+        for kept_det in kept:
+            box_b = kept_det.get('box', [0, 0, 0, 0])
+            area_b = area(box_b)
+            inter = intersection(box_a, box_b)
+            overlap = inter / min(area_a, area_b) if min(area_a, area_b) > 0 else 0
+            if overlap >= overlap_threshold:
+                contained = True
+                break
+        if not contained:
+            kept.append(det)
+
+    return kept
+
+
 def check_and_install_gpu_faiss():
     """Check if FAISS has GPU support, install if needed."""
     try:
@@ -2122,6 +2173,13 @@ def detect_products():
                         except Exception as e:
                             print(f"Error parsing detection: {e}")
                             continue
+
+        # Remove nested/duplicate boxes (small boxes inside larger ones)
+        detections = filter_nested_boxes(detections, overlap_threshold=0.8)
+        # Reindex IDs after filtering
+        for idx, det in enumerate(detections):
+            det['id'] = idx
+        product_count = len(detections)
         
         # Initialize SKU matching
         crops_url = None
