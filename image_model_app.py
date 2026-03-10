@@ -209,8 +209,6 @@ def route(path, methods=None, **kwargs):
 
 
 APP.route = route
-
-
 def after_request(func):
     @APP.middleware("http")
     async def _after_request(request, call_next):
