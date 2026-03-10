@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5179.jpg",
+  "image_stem": "IMG_5179",
+  "image_width": 4284,
+  "image_height": 5712,
+  "timestamp": "2026-02-17T04:46:38.936Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.43625,
+        0.578234,
+        0.345,
+        0.581989
+      ],
+      "class_name": "product",
+      "sku": "CHOCOLATE",
+      "cropped": "openclip_dataset/CHOCOLATE/IMG_5179_box0_cpho12.jpg"
+    }
+  ]
+}

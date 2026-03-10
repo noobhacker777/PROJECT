@@ -36,7 +36,7 @@ if [ $? -ne 0 ]; then
 fi
 
 echo ""
-echo "Step 2: Setup complete! Starting Flask server..."
+echo "Step 2: Setup complete! Starting FastAPI server..."
 echo ""
 echo "================================================================================"
 echo "  API Server Starting"
@@ -48,5 +48,5 @@ echo ""
 echo "Press Ctrl+C to stop the server"
 echo ""
 
-# Start the Flask app
+# Start the FastAPI app
 python3 run_app.py

@@ -1,16 +1,22 @@
 """
-HOLO11 SKU Detection API - Flask App
+HOLO11 SKU Detection API - FastAPI App
 Licensed under AGPL-3.0. See LICENSE file for details.
 
 Portions derived from Ultralytics YOLOv11 (AGPL-3.0).
 
-Flask app that serves inference and training endpoints.
+FastAPI app that serves inference and training endpoints.
 Run: python image_model_app.py
 """
-from flask import Flask, request, jsonify, send_from_directory, send_file, redirect
-from werkzeug.utils import secure_filename
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import UploadFile
+from starlette.responses import Response
+from collections import defaultdict
+from contextvars import ContextVar
 from pathlib import Path
 import threading
+import asyncio
 import time
 import json
 import sys
@@ -20,6 +26,7 @@ from datetime import datetime
 from functools import wraps
 import os
 import importlib.util
+import re
 import cv2
 import numpy as np
 import threading
@@ -34,7 +41,252 @@ except ImportError:
 
 
 PROJECT = Path(__file__).resolve().parent
-APP = Flask(__name__, static_folder=str(PROJECT / 'static'), static_url_path='')
+APP = FastAPI()
+
+REQUEST_CONTEXT = ContextVar("request_context")
+FORM_CONTEXT = ContextVar("form_context")
+FILES_CONTEXT = ContextVar("files_context")
+JSON_CONTEXT = ContextVar("json_context")
+
+
+def secure_filename(filename):
+    name = filename or ""
+    name = name.replace("\\", "/").split("/")[-1]
+    name = re.sub(r"[^A-Za-z0-9_.-]", "_", name)
+    name = name.strip("._")
+    return name or "file"
+
+
+class FileStorage:
+    def __init__(self, upload):
+        self._upload = upload
+        self.filename = upload.filename
+        self.content_type = upload.content_type
+        self.file = upload.file
+
+    def read(self, *args, **kwargs):
+        return self.file.read(*args, **kwargs)
+
+    def save(self, dst):
+        self.file.seek(0)
+        with open(dst, "wb") as out:
+            shutil.copyfileobj(self.file, out)
+        self.file.seek(0)
+
+    def seek(self, *args, **kwargs):
+        return self.file.seek(*args, **kwargs)
+
+    def tell(self):
+        return self.file.tell()
+
+    def close(self):
+        return self.file.close()
+
+    def __getattr__(self, name):
+        return getattr(self._upload, name)
+
+
+class MultiDictProxy:
+    def __init__(self, data):
+        self._data = data or {}
+
+    def get(self, key, default=None):
+        values = self._data.get(key)
+        if not values:
+            return default
+        return values[0]
+
+    def getlist(self, key):
+        return list(self._data.get(key, []))
+
+    def __contains__(self, key):
+        return key in self._data
+
+    def __getitem__(self, key):
+        values = self._data.get(key)
+        if not values:
+            raise KeyError(key)
+        return values[0]
+
+    def items(self):
+        for key, values in self._data.items():
+            for value in values:
+                yield key, value
+
+
+class RequestProxy:
+    @property
+    def _request(self):
+        req = REQUEST_CONTEXT.get(None)
+        if req is None:
+            raise RuntimeError("Request context not available")
+        return req
+
+    @property
+    def args(self):
+        return self._request.query_params
+
+    @property
+    def files(self):
+        return FILES_CONTEXT.get(MultiDictProxy({}))
+
+    @property
+    def form(self):
+        return FORM_CONTEXT.get(MultiDictProxy({}))
+
+    @property
+    def json(self):
+        return JSON_CONTEXT.get(None)
+
+    @property
+    def is_json(self):
+        content_type = self._request.headers.get("content-type", "")
+        return "application/json" in content_type
+
+    def get_json(self):
+        return JSON_CONTEXT.get(None)
+
+    def __getattr__(self, name):
+        return getattr(self._request, name)
+
+
+request = RequestProxy()
+
+
+def jsonify(payload):
+    return payload
+
+
+def _to_response(result):
+    if isinstance(result, Response):
+        return result
+
+    if isinstance(result, tuple):
+        if len(result) == 2:
+            payload, status_code = result
+            headers = None
+        elif len(result) == 3:
+            payload, status_code, headers = result
+        else:
+            return result
+
+        if isinstance(payload, Response):
+            payload.status_code = status_code
+            if headers:
+                payload.headers.update(headers)
+            return payload
+
+        response = JSONResponse(content=payload, status_code=status_code)
+        if headers:
+            response.headers.update(headers)
+        return response
+
+    if isinstance(result, (dict, list)):
+        return JSONResponse(content=result)
+
+    return result
+
+
+def flask_compatible(func):
+    if getattr(func, "__async__", False) or asyncio.iscoroutinefunction(func):
+        async def wrapper(*args, **kwargs):
+            result = await func(*args, **kwargs)
+            return _to_response(result)
+        return wraps(func)(wrapper)
+
+    def wrapper(*args, **kwargs):
+        result = func(*args, **kwargs)
+        return _to_response(result)
+
+    return wraps(func)(wrapper)
+
+
+def route(path, methods=None, **kwargs):
+    def decorator(func):
+        route_methods = methods or ["GET"]
+        return APP.api_route(path, methods=route_methods, **kwargs)(flask_compatible(func))
+    return decorator
+
+
+APP.route = route
+
+
+def after_request(func):
+    @APP.middleware("http")
+    async def _after_request(request, call_next):
+        response = await call_next(request)
+        try:
+            updated = func(response)
+            if updated is not None:
+                response = updated
+        except Exception:
+            pass
+        return response
+
+    return func
+
+
+APP.after_request = after_request
+
+
+@APP.middleware("http")
+async def bind_request_context(request, call_next):
+    request_token = REQUEST_CONTEXT.set(request)
+    form_token = None
+    files_token = None
+    json_token = None
+    try:
+        content_type = request.headers.get("content-type", "")
+        json_data = None
+        if "application/json" in content_type:
+            try:
+                json_data = await request.json()
+            except Exception:
+                json_data = None
+        json_token = JSON_CONTEXT.set(json_data)
+
+        if "multipart/form-data" in content_type or "application/x-www-form-urlencoded" in content_type:
+            form = await request.form()
+            files_map = defaultdict(list)
+            form_map = defaultdict(list)
+            for key, value in form.multi_items():
+                if isinstance(value, UploadFile):
+                    files_map[key].append(FileStorage(value))
+                else:
+                    form_map[key].append(value)
+            files_token = FILES_CONTEXT.set(MultiDictProxy(files_map))
+            form_token = FORM_CONTEXT.set(MultiDictProxy(form_map))
+        else:
+            files_token = FILES_CONTEXT.set(MultiDictProxy({}))
+            form_token = FORM_CONTEXT.set(MultiDictProxy({}))
+
+        response = await call_next(request)
+        return response
+    finally:
+        if form_token is not None:
+            FORM_CONTEXT.reset(form_token)
+        if files_token is not None:
+            FILES_CONTEXT.reset(files_token)
+        if json_token is not None:
+            JSON_CONTEXT.reset(json_token)
+        REQUEST_CONTEXT.reset(request_token)
+
+
+def send_from_directory(directory, filename):
+    base = Path(directory).resolve()
+    file_path = (base / filename).resolve()
+
+    if not str(file_path).startswith(str(base)):
+        raise HTTPException(status_code=403, detail="access denied")
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="file not found")
+
+    return FileResponse(str(file_path))
+
+
+def send_file(path, mimetype=None, as_attachment=False, download_name=None):
+    filename = download_name if as_attachment else None
+    return FileResponse(str(path), media_type=mimetype, filename=filename)
 
 # Global cache for SKU embeddings (loaded once on startup)
 SKU_EMBEDDINGS_CACHE = {}
@@ -415,6 +667,19 @@ def cleanup_old_tmp_files(max_age_hours=1):
 cleanup_old_tmp_files()
 
 
+@APP.on_event("startup")
+def initialize_app_cache():
+    print("\n" + "=" * 80)
+    print("🚀 INITIALIZING APP...")
+    print("=" * 80)
+    check_and_install_gpu_faiss()
+
+    print("\n🚀 INITIALIZING APP CACHES...")
+    print("=" * 80)
+    initialize_sku_embeddings()
+    print("=" * 80 + "\n")
+
+
 
 # Serve dashboard at root to bypass index.html
 @APP.route('/')
@@ -434,7 +699,7 @@ UPLOAD_IMAGES = DATASET / 'images'
 UPLOAD_LABELS = DATASET / 'labels'
 
 
-@APP.route('/uploads/image/<path:name>')
+@APP.route('/uploads/image/{name:path}')
 def serve_upload_image(name):
     return send_from_directory(str(UPLOAD_IMAGES), name)
 
@@ -566,7 +831,7 @@ def backups():
 
 
 
-@APP.route('/backups/download/<backup_name>')
+@APP.route('/backups/download/{backup_name}')
 def download_backup(backup_name):
     """Download a backup file to local machine."""
     scan_backup_dir = PROJECT / 'scan' / 'backups'
@@ -580,7 +845,6 @@ def download_backup(backup_name):
         return jsonify({'error': 'backup file not found'}), 404
     
     try:
-        from flask import send_file
         return send_file(
             str(backup_file),
             as_attachment=True,
@@ -619,7 +883,7 @@ def images_list():
     return jsonify(result)
 
 
-@APP.route('/tmp/<path:filename>')
+@APP.route('/tmp/{filename:path}')
 def serve_tmp_file(filename):
     """Serve temporary scan images from tmp/ folder."""
     # Security: ensure no path traversal
@@ -1060,7 +1324,7 @@ def create_sku():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@APP.route('/api/skus/<sku_id>', methods=['PUT'])
+@APP.route('/api/skus/{sku_id}', methods=['PUT'])
 def update_sku(sku_id):
     """Update an existing SKU."""
     try:
@@ -1077,7 +1341,7 @@ def update_sku(sku_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@APP.route('/api/skus/<sku_id>', methods=['DELETE'])
+@APP.route('/api/skus/{sku_id}', methods=['DELETE'])
 def delete_sku(sku_id):
     """Delete a SKU."""
     try:
@@ -3116,7 +3380,7 @@ def get_dataset_skus():
         return jsonify({'ok': False, 'error': str(e), 'skus': []}), 500
 
 
-@APP.route('/api/dataset/sku/<sku_name>/images', methods=['GET'])
+@APP.route('/api/dataset/sku/{sku_name}/images', methods=['GET'])
 def get_sku_images(sku_name):
     """Get paginated images for a specific SKU.
     
@@ -3185,7 +3449,7 @@ def get_sku_images(sku_name):
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
-@APP.route('/api/dataset/image/<sku_name>/<image_name>')
+@APP.route('/api/dataset/image/{sku_name}/{image_name}')
 def serve_dataset_image(sku_name, image_name):
     """Serve an image from a specific SKU folder."""
     try:
@@ -3387,7 +3651,7 @@ def get_dataset_stats_v2():
         return jsonify({'error': str(e)}), 500
 
 
-@APP.route('/api/dataset/sku/<sku_name>/image', methods=['DELETE'])
+@APP.route('/api/dataset/sku/{sku_name}/image', methods=['DELETE'])
 @safe_json
 def delete_sku_image(sku_name):
     """Delete a specific image from a SKU folder."""
@@ -3411,7 +3675,7 @@ def delete_sku_image(sku_name):
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
-@APP.route('/api/dataset/sku/<sku_name>/image/<image_name>')
+@APP.route('/api/dataset/sku/{sku_name}/image/{image_name}')
 @safe_json
 def serve_sku_image(sku_name, image_name):
     """Serve an image from a SKU folder."""
@@ -3425,7 +3689,7 @@ def serve_sku_image(sku_name, image_name):
     return send_file(str(image_path), mimetype='image/jpeg')
 
 
-@APP.route('/api/dataset/sku/<sku_name>/upload', methods=['POST'])
+@APP.route('/api/dataset/sku/{sku_name}/upload', methods=['POST'])
 @safe_json
 def upload_sku_image(sku_name):
     """Upload image(s) to a SKU folder."""
@@ -3470,7 +3734,7 @@ def upload_sku_image(sku_name):
         return jsonify({'ok': False, 'error': str(e)}), 500
 
 
-@APP.route('/api/dataset/sku/<sku_name>', methods=['DELETE'])
+@APP.route('/api/dataset/sku/{sku_name}', methods=['DELETE'])
 @safe_json
 def delete_sku_folder(sku_name):
     """Delete entire SKU folder."""
@@ -4059,19 +4323,9 @@ def detect_crops():
         }), 500
 
 
+APP.mount("/", StaticFiles(directory=str(PROJECT / "static")), name="static")
+
 if __name__ == '__main__':
-    # Check and install GPU FAISS if needed
-    print("\n" + "="*80)
-    print("🚀 INITIALIZING APP...")
-    print("="*80)
-    check_and_install_gpu_faiss()
-    
-    # Initialize all caches (HOLO model, FAISS index, OpenCLIP embeddings)
-    print("\n🚀 INITIALIZING APP CACHES...")
-    print("="*80)
-    initialize_sku_embeddings()
-    print("="*80 + "\n")
-    
-    # t = threading.Thread(target=monitor_models, daemon=True)
-    # t.start()
-    APP.run(host='0.0.0.0', port=5002)
+    import uvicorn
+
+    uvicorn.run("image_model_app:APP", host="0.0.0.0", port=5002, log_level="info")

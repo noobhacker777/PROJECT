@@ -1,0 +1,12 @@
+# Ignore file formats
+*.log
+*.tmp
+*.zip
+*.exe
+*.pyc
+*.jpg
+*.png
+*.pdf
+*.docx
+*.xlsx
+*.env

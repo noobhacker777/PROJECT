@@ -37,7 +37,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo Step 2: Setup complete! Starting Flask server...
+echo Step 2: Setup complete! Starting FastAPI server...
 echo.
 echo ============================================================================
 echo   API Server Starting
@@ -49,7 +49,7 @@ echo.
 echo Press Ctrl+C to stop the server
 echo.
 
-REM Start the Flask app
+REM Start the FastAPI app
 python run_app.py
 
 pause

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 HOLO SKU Detection API Server
-Simple Flask launcher without PyInstaller complications
+Simple FastAPI launcher without PyInstaller complications
 Run: python run_app.py
 """
 
@@ -20,7 +20,7 @@ if __name__ == '__main__':
         print("=" * 80)
         print("HOLO SKU Detection API Server")
         print("=" * 80)
-        print(f"Starting Flask server on http://localhost:5002")
+        print(f"Starting FastAPI server on http://localhost:5002")
         print(f"Project: {PROJECT}")
         print("")
         print("API Endpoints:")
@@ -35,14 +35,9 @@ if __name__ == '__main__':
         print("=" * 80)
         print("")
         
-        # Run Flask
-        APP.run(
-            host='0.0.0.0',
-            port=5002,
-            debug=False,
-            use_reloader=False,
-            threaded=True
-        )
+        # Run FastAPI (uvicorn)
+        import uvicorn
+        uvicorn.run("image_model_app:APP", host="0.0.0.0", port=5002, log_level="info")
         
     except Exception as e:
         print(f"ERROR: Failed to start server: {e}")
