@@ -57,6 +57,26 @@ def secure_filename(filename):
     return name or "file"
 
 
+def build_sku_stats(detections):
+    """Build SKU similarity and count stats from detections."""
+    sku_matches = {}
+    sku_counts = {}
+    if not detections:
+        return sku_matches, sku_counts
+    for det in detections:
+        sku_name = det.get('matched_sku')
+        if not sku_name or sku_name == 'Unknown':
+            continue
+        sku_counts[sku_name] = sku_counts.get(sku_name, 0) + 1
+        try:
+            sim_value = float(det.get('sku_similarity', 0.0) or 0.0)
+        except (TypeError, ValueError):
+            sim_value = 0.0
+        if sku_name not in sku_matches or sim_value > sku_matches[sku_name]:
+            sku_matches[sku_name] = sim_value
+    return sku_matches, sku_counts
+
+
 class FileStorage:
     def __init__(self, upload):
         self._upload = upload
@@ -2335,6 +2355,8 @@ def detect_products(json_only: bool = False):
             "image_url": "/tmp/scan_...",
             "crops_url": "/tmp/scan_..._detected_crops.jpg",
             "sku_matches": {"BIRDS": 0.87, ...},
+            "sku_counts": {"BIRDS": 2, ...},
+            "sku_list": ["BIRDS", "BIRDS", ...],
             "message": string
         }
     """
@@ -2463,6 +2485,7 @@ def detect_products(json_only: bool = False):
         crops_url = None
         crops_path = None
         sku_matches = {}
+        sku_counts = {}
         matching_mode = 'none'
         accuracy_mode = request.args.get('accuracy_mode', 'false').lower() == 'true'
         
@@ -2626,22 +2649,12 @@ def detect_products(json_only: bool = False):
                 detections = list(box_dedup.values())
                 product_count = len(detections)
 
-                # Keep sku_matches aligned with final detections only.
-                final_sku_matches = {}
-                for det in detections:
-                    sku_name = det.get('matched_sku')
-                    if not sku_name or sku_name == 'Unknown':
-                        continue
-                    try:
-                        sim_value = float(det.get('sku_similarity', 0.0) or 0.0)
-                    except (TypeError, ValueError):
-                        sim_value = 0.0
-                    final_sku_matches[sku_name] = max(final_sku_matches.get(sku_name, 0.0), sim_value)
-                sku_matches = final_sku_matches
+                # Keep SKU stats aligned with final detections only.
+                sku_matches, sku_counts = build_sku_stats(detections)
                 
                 print(f"[FILTER] Products after OCR filter: {len(ocr_filtered)}/{original_product_count}")
                 print(f"[FILTER] Products after box dedup: {product_count}")
-                print(f"[OPENCLIP] SKU matching complete: {sku_matches}")
+                print(f"[OPENCLIP] SKU matching complete: {sku_matches} (counts: {sku_counts})")
                 
             except ImportError:
                 print("[WARNING] OpenCLIP not installed. Skipping SKU matching.")
@@ -2684,6 +2697,12 @@ def detect_products(json_only: bool = False):
                     'error': str(e)
                 }
         
+        sku_list = [
+            det.get('matched_sku')
+            for det in detections
+            if det.get('matched_sku') and det.get('matched_sku') != 'Unknown'
+        ]
+
         response = {
             'success': True,
             'product_count': product_count,
@@ -2693,7 +2712,8 @@ def detect_products(json_only: bool = False):
             'matching_mode': matching_mode,
             'accuracy_mode_enabled': accuracy_mode,
             'ocr_keywords': ocr_data,
-            'ocr_sku_match': ocr_sku_match
+            'ocr_sku_match': ocr_sku_match,
+            'sku_list': sku_list
         }
         if image_url:
             response['image_url'] = image_url
@@ -2711,6 +2731,7 @@ def detect_products(json_only: bool = False):
         
         if sku_matches:
             response['sku_matches'] = {k: round(v, 3) for k, v in sku_matches.items()}
+        response['sku_counts'] = sku_counts
         
         def cleanup_detection_files():
             import time
@@ -3282,23 +3303,20 @@ def scan_image_simple():
         response_data['product_count'] = validated_count
         response_data['detections'] = validated_detections
         response_data['message'] = f'Detected {validated_count} confirmed product(s) - FAISS + OCR wrapper validation'
+        response_data['sku_list'] = [
+            det.get('matched_sku')
+            for det in validated_detections
+            if det.get('matched_sku') and det.get('matched_sku') != 'Unknown'
+        ]
 
-        # Keep sku_matches aligned with final validated detections only.
-        final_sku_matches = {}
-        for det in validated_detections:
-            sku_name = det.get('matched_sku')
-            if not sku_name or sku_name == 'Unknown':
-                continue
-            try:
-                sim_value = float(det.get('sku_similarity', 0.0) or 0.0)
-            except (TypeError, ValueError):
-                sim_value = 0.0
-            final_sku_matches[sku_name] = max(final_sku_matches.get(sku_name, 0.0), sim_value)
+        # Keep SKU stats aligned with final validated detections only.
+        final_sku_matches, final_sku_counts = build_sku_stats(validated_detections)
 
         if final_sku_matches:
             response_data['sku_matches'] = {k: round(float(v), 3) for k, v in final_sku_matches.items()}
         else:
             response_data.pop('sku_matches', None)
+        response_data['sku_counts'] = final_sku_counts
         
         if validated_count < product_count:
             response_data['note'] = f'{product_count} boxes detected by YOLO, {validated_count} confirmed by FAISS+OCR wrapper validation'

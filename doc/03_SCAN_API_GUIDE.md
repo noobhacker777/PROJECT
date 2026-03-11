@@ -151,6 +151,13 @@ http://localhost:5002/scan?image=/path/to/image.jpg&format=json
     "SCREWDRIVER": 0.786,
     "OTHER": 0.421
   },
+  "sku_counts": {
+    "BIRDS": 1,
+    "CABLE": 1,
+    "SCREWDRIVER": 1,
+    "OTHER": 1
+  },
+  "sku_list": ["BIRDS", "CABLE", "SCREWDRIVER", "OTHER"],
   "message": "Detection completed successfully"
 }
 ```
@@ -254,6 +261,8 @@ print(result['detections'])
 | `image_url` | string | URL to uploaded image |
 | `crops_url` | string | URL to detection visualization |
 | `sku_matches` | object | All SKU matches with scores |
+| `sku_counts` | object | Count of each matched SKU (includes duplicates) |
+| `sku_list` | array | List of matched SKUs (includes duplicates) |
 | `message` | string | Status message |
 
 ---

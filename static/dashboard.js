@@ -19,6 +19,41 @@ function clamp(value, min_val = 0, max_val = 1) {
   return Math.max(min_val, Math.min(max_val, value));
 }
 
+function buildSkuCountsFromDetections(detections) {
+  const counts = {};
+  (detections || []).forEach((det) => {
+    const sku = det && det.matched_sku;
+    if (!sku || sku === 'Unknown') return;
+    counts[sku] = (counts[sku] || 0) + 1;
+  });
+  return counts;
+}
+
+function resolveSkuCounts(data) {
+  const counts = (data && data.sku_counts) || {};
+  if (Object.keys(counts).length > 0) {
+    return counts;
+  }
+  return buildSkuCountsFromDetections(data && data.detections);
+}
+
+function expandSkuEntries(skuMatches, skuCounts) {
+  const entries = [];
+  Object.entries(skuMatches || {}).forEach(([sku, similarity]) => {
+    const rawCount = skuCounts && skuCounts[sku] !== undefined ? skuCounts[sku] : 0;
+    const count = parseInt(rawCount, 10) || 0;
+    const repeats = Math.max(count, 1);
+    for (let i = 0; i < repeats; i += 1) {
+      entries.push({ sku, similarity });
+    }
+  });
+  return entries;
+}
+
+function sumSkuCounts(counts) {
+  return Object.values(counts || {}).reduce((sum, val) => sum + (parseInt(val, 10) || 0), 0);
+}
+
 // ============================================================
 // FAISS INDEX MANAGEMENT
 // ============================================================
@@ -2169,16 +2204,17 @@ async function takeImageScan() {
     // Update unified display
     const productCount = data.product_count || 0;
     const skuMatches = data.sku_matches || {};
-    const uniqueSkuCount = Object.keys(skuMatches).length;
+    const skuCounts = resolveSkuCounts(data);
+    const matchedSkuCount = sumSkuCounts(skuCounts);
     
     document.getElementById('productCountBadge').textContent = `${productCount} Product${productCount !== 1 ? 's' : ''}`;
-    document.getElementById('skuCountBadge').textContent = `${uniqueSkuCount} SKU${uniqueSkuCount !== 1 ? 's' : ''}`;
+    document.getElementById('skuCountBadge').textContent = `${matchedSkuCount} SKU${matchedSkuCount !== 1 ? 's' : ''}`;
     
     // Update summary stats
     document.getElementById('detectionCount').textContent = productCount;
     document.getElementById('imageDimensions').textContent = data.image_size ? 
       `${data.image_size[0]} × ${data.image_size[1]}px` : 'Unknown';
-    document.getElementById('uniqueSkuCount').textContent = uniqueSkuCount;
+    document.getElementById('uniqueSkuCount').textContent = matchedSkuCount;
     
     // Build unified detection details
     let detailsHtml = '';
@@ -2208,7 +2244,8 @@ async function takeImageScan() {
       // Add SKU matches summary
       if (Object.keys(skuMatches).length > 0) {
         detailsHtml += `\nSKU Matches:\n`;
-        Object.entries(skuMatches).forEach(([sku, similarity]) => {
+        const expandedSkuEntries = expandSkuEntries(skuMatches, skuCounts);
+        expandedSkuEntries.forEach(({ sku, similarity }) => {
           detailsHtml += `  ${sku}: ${(similarity * 100).toFixed(1)}%\n`;
         });
       }
@@ -4607,7 +4644,9 @@ function displayDetectionResults(data) {
   document.getElementById('detectionCount').textContent = data.product_count || 0;
   
   const skuMatches = data.sku_matches || {};
-  document.getElementById('uniqueSkuCount').textContent = Object.keys(skuMatches).length;
+  const skuCounts = resolveSkuCounts(data);
+  const matchedSkuCount = sumSkuCounts(skuCounts);
+  document.getElementById('uniqueSkuCount').textContent = matchedSkuCount;
 
   // Show matching mode indicator
   const matchingMode = data.matching_mode || 'none';
@@ -4674,7 +4713,8 @@ function displayDetectionResults(data) {
   skuMatchesList.innerHTML = '';
 
   if (Object.keys(skuMatches).length > 0) {
-    Object.entries(skuMatches).forEach(([sku, similarity]) => {
+    const expandedSkuEntries = expandSkuEntries(skuMatches, skuCounts);
+    expandedSkuEntries.forEach(({ sku, similarity }) => {
       const matchDiv = document.createElement('div');
       matchDiv.style.cssText = 'background:#f0f0f0; padding:10px; border-radius:6px; display:flex; justify-content:space-between; align-items:center;';
       
@@ -4843,11 +4883,13 @@ function displayDetectionResultsBatch(batchData) {
   // Aggregate stats
   let totalProducts = 0;
   const aggregatedSkuMatches = {};
+  const aggregatedSkuCounts = {};
 
   results.forEach(item => {
     const res = (item && item.response) || {};
     totalProducts += res.product_count || 0;
     const skuMatches = res.sku_matches || {};
+    const skuCounts = resolveSkuCounts(res);
     Object.entries(skuMatches).forEach(([sku, similarity]) => {
       if (aggregatedSkuMatches[sku] === undefined) {
         aggregatedSkuMatches[sku] = similarity;
@@ -4855,10 +4897,13 @@ function displayDetectionResultsBatch(batchData) {
         aggregatedSkuMatches[sku] = Math.max(aggregatedSkuMatches[sku], similarity);
       }
     });
+    Object.entries(skuCounts).forEach(([sku, count]) => {
+      aggregatedSkuCounts[sku] = (aggregatedSkuCounts[sku] || 0) + (parseInt(count, 10) || 0);
+    });
   });
 
   document.getElementById('detectionCount').textContent = totalProducts;
-  document.getElementById('uniqueSkuCount').textContent = Object.keys(aggregatedSkuMatches).length;
+  document.getElementById('uniqueSkuCount').textContent = sumSkuCounts(aggregatedSkuCounts);
 
   // Matching mode indicator for batch
   const modeIndicator = document.getElementById('matchingModeIndicator');
@@ -4897,16 +4942,18 @@ function displayDetectionResultsBatch(batchData) {
 
       // Build SKU list for this image
       const skuMatches = res.sku_matches || {};
+      const skuCounts = resolveSkuCounts(res);
       const skuEntries = Object.entries(skuMatches).sort((a, b) => b[1] - a[1]);
+      const expandedSkuEntries = expandSkuEntries(skuMatches, skuCounts);
       let topSim = null;
       if (skuEntries.length > 0) {
         topSim = skuEntries[0][1];
       }
-      const skuListHtml = skuEntries.length
-        ? skuEntries.map(([sku, sim]) => (
+      const skuListHtml = expandedSkuEntries.length
+        ? expandedSkuEntries.map(({ sku, similarity }) => (
             `<div style="display:flex; justify-content:space-between; gap:6px;">
                <span style="font-weight:bold; color:#333;">${sku}</span>
-               <span style="color:#667eea; font-weight:bold;">${(sim * 100).toFixed(1)}%</span>
+               <span style="color:#667eea; font-weight:bold;">${(similarity * 100).toFixed(1)}%</span>
              </div>`
           )).join('')
         : '<div style="color:#999;">No SKU matches</div>';
@@ -4941,7 +4988,8 @@ function displayDetectionResultsBatch(batchData) {
 
   const skuEntries = Object.entries(aggregatedSkuMatches).sort((a, b) => b[1] - a[1]);
   if (skuEntries.length > 0) {
-    skuEntries.forEach(([sku, similarity]) => {
+    const expandedSkuEntries = expandSkuEntries(aggregatedSkuMatches, aggregatedSkuCounts);
+    expandedSkuEntries.forEach(({ sku, similarity }) => {
       const matchDiv = document.createElement('div');
       matchDiv.style.cssText = 'background:#f0f0f0; padding:10px; border-radius:6px; display:flex; justify-content:space-between; align-items:center;';
       const percent = (similarity * 100).toFixed(1);
@@ -4974,8 +5022,12 @@ function openDetectionInNewTab() {
     const rows = results.map((item, idx) => {
       const res = (item && item.response) || {};
       const skuEntries = Object.entries(res.sku_matches || {}).sort((a, b) => b[1] - a[1]);
+      const skuCounts = resolveSkuCounts(res);
+      const expandedSkuEntries = expandSkuEntries(res.sku_matches || {}, skuCounts);
       const skuList = skuEntries.length
-        ? skuEntries.map(([sku, sim]) => `${sku} (${(sim * 100).toFixed(1)}%)`).join(', ')
+        ? expandedSkuEntries.map(({ sku, similarity }) => (
+            `${sku} (${(similarity * 100).toFixed(1)}%)`
+          )).join(', ')
         : '-';
       const detCount = res.product_count || 0;
       const status = item.status || 200;
@@ -5032,6 +5084,10 @@ function openDetectionInNewTab() {
     return;
   }
 
+  const skuMatches = lastDetectionResults.sku_matches || {};
+  const skuCounts = resolveSkuCounts(lastDetectionResults);
+  const matchedSkuCount = sumSkuCounts(skuCounts);
+
   newTab.document.write(`
     <!DOCTYPE html>
     <html>
@@ -5065,8 +5121,8 @@ function openDetectionInNewTab() {
             <div class="stat-value">${lastDetectionResults.product_count || 0}</div>
           </div>
           <div class="stat-box">
-            <div class="stat-label">Unique SKUs</div>
-            <div class="stat-value">${Object.keys(lastDetectionResults.sku_matches || {}).length}</div>
+            <div class="stat-label">Matched SKUs</div>
+            <div class="stat-value">${matchedSkuCount}</div>
           </div>
           <div class="stat-box">
             <div class="stat-label">Image Size</div>
@@ -5108,14 +5164,18 @@ function openDetectionInNewTab() {
           </table>
         </div>
 
-        ${Object.keys(lastDetectionResults.sku_matches || {}).length > 0 ? `
+        ${Object.keys(skuMatches).length > 0 ? `
           <div class="section">
             <h2>🎯 SKU Matches Summary</h2>
-            ${Object.entries(lastDetectionResults.sku_matches).map(([sku, similarity]) => `
+            ${Object.entries(skuMatches).map(([sku, similarity]) => {
+              const count = skuCounts[sku] || 0;
+              const repeats = Math.max(parseInt(count, 10) || 0, 1);
+              return Array.from({ length: repeats }).map(() => `
               <div class="sku-match">
                 <strong>${sku}</strong>: <span style="color: #667eea; font-weight: bold;">${(similarity * 100).toFixed(1)}%</span>
               </div>
-            `).join('')}
+            `).join('');
+            }).join('')}
           </div>
         ` : ''}
 
