@@ -1,35 +1,3 @@
-# ---- PyTorch GPU (CUDA 12.1) ----
-torch==2.5.1+cu121
-torchvision==0.20.1+cu121
-torchaudio==2.5.1+cu121
---extra-index-url https://download.pytorch.org/whl/cu121
-
-# ---- Core runtime ----
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-python-multipart>=0.0.6
-Pillow>=10.0.0
-opencv-python>=4.5.0
-PyYAML>=6.0
-watchdog>=2.0.0
-numpy>=1.24.0
-pydantic>=2.0.0
-tqdm>=4.65.0
-requests>=2.31.0
-tensorboard>=2.13.0
-psutil>=5.9.0
-
-# ---- ML / Vector ----
-open-clip-torch>=2.24.0
-h5py>=3.8.0
-scipy>=1.17.0
-easyocr>=1.7.0
-
-# ---- GPU FAISS (CUDA 12.x) ----
-# Choose the appropriate index-url for your CUDA version:
-faiss-gpu-cu12>=1.7.4
-# Alternative for CUDA 11.8:
-# faiss-gpu-cu11>=1.7.4
---extra-index-url https://download.pytorch.org/whl/cu121
-
-
+version https://git-lfs.github.com/spec/v1
+oid sha256:ed16f0db4cf825125159a10d303162e8aaf16123a82424acf67c4274273297bd
+size 730
