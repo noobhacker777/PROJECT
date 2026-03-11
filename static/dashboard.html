@@ -407,7 +407,7 @@
         <p style="margin:0 0 12px 0; font-size:12px; color:#666;">Upload an image to detect products and match them to known SKUs</p>
         
         <div style="display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap;">
-          <input type="file" id="detectImageFile" accept="image/*" style="flex:1; min-width:200px; padding:8px; border:1px solid #ddd; border-radius:4px;" />
+          <input type="file" id="detectImageFile" accept="image/*" multiple style="flex:1; min-width:200px; padding:8px; border:1px solid #ddd; border-radius:4px;" />
           <button onclick="scanAndDetect()" style="padding:8px 16px; background:#ffc107; color:#333; border:none; border-radius:4px; cursor:pointer; font-weight:bold; height:36px; white-space:nowrap;">🔍 Detect Products</button>
         </div>
         
@@ -456,11 +456,11 @@
             <div style="font-size:12px; font-weight:bold; color:#333; margin-bottom:8px;">Detected Products:</div>
             <table style="width:100%; border-collapse:collapse; font-size:11px;">
               <tr style="background:#f0f0f0; font-weight:bold;">
-                <td style="padding:8px; border:1px solid #ddd; width:10%;">ID</td>
-                <td style="padding:8px; border:1px solid #ddd; width:15%;">Confidence</td>
-                <td style="padding:8px; border:1px solid #ddd; width:20%;">Bounding Box (x,y,w,h)</td>
-                <td style="padding:8px; border:1px solid #ddd; width:20%;">Matched SKU</td>
-                <td style="padding:8px; border:1px solid #ddd; width:20%;">SKU Similarity</td>
+                <td id="detectionHeaderId" style="padding:8px; border:1px solid #ddd; width:10%;">ID</td>
+                <td id="detectionHeaderConf" style="padding:8px; border:1px solid #ddd; width:15%;">Confidence</td>
+                <td id="detectionHeaderBox" style="padding:8px; border:1px solid #ddd; width:20%;">Bounding Box (x,y,w,h)</td>
+                <td id="detectionHeaderSku" style="padding:8px; border:1px solid #ddd; width:20%;">Matched SKU</td>
+                <td id="detectionHeaderSim" style="padding:8px; border:1px solid #ddd; width:20%;">SKU Similarity</td>
               </tr>
               <tbody id="detectionTableBody">
               </tbody>

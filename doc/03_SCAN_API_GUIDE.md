@@ -157,6 +157,41 @@ http://localhost:5002/scan?image=/path/to/image.jpg&format=json
 
 ---
 
+## 🧪 API-Only POST (Same as GUI Detect)
+
+Use this when you want the **same backend pipeline as the GUI** but **JSON only**:
+
+```
+POST /api/scanimg
+```
+
+### cURL
+```bash
+curl -X POST http://127.0.0.1:5002/api/scanimg \
+  -F "image=@D:\\path\\to\\image.jpg"
+```
+
+### cURL (Multiple Images)
+```bash
+curl -X POST http://127.0.0.1:5002/api/scanimg \
+  -F "image=@D:\\path\\to\\image_1.jpg" \
+  -F "image=@D:\\path\\to\\image_2.jpg"
+```
+
+### JavaScript (Fetch)
+```javascript
+const formData = new FormData();
+formData.append('image', file);
+
+const response = await fetch('/api/scanimg', {
+  method: 'POST',
+  body: formData
+});
+const data = await response.json();
+```
+
+---
+
 ## 📝 Complete Usage Examples
 
 ### Browser - View Results as HTML

@@ -4543,11 +4543,12 @@ async function scanAndDetect() {
     return;
   }
 
-  const file = fileInput.files[0];
+  const files = Array.from(fileInput.files || []);
   
-  // Validate file type
-  if (!file.type.startsWith('image/')) {
-    alert('Please select an image file');
+  // Validate file types
+  const invalidFile = files.find(f => !f.type.startsWith('image/'));
+  if (invalidFile) {
+    alert('Please select image files only');
     return;
   }
 
@@ -4557,9 +4558,11 @@ async function scanAndDetect() {
 
   try {
     const formData = new FormData();
-    formData.append('image', file);
+    files.forEach(f => formData.append('image', f));
 
-    const response = await fetch('/api/detect', {
+    const isBatch = files.length > 1;
+    const endpoint = isBatch ? '/api/scanimg' : '/api/detect';
+    const response = await fetch(endpoint, {
       method: 'POST',
       body: formData
     });
@@ -4581,6 +4584,22 @@ async function scanAndDetect() {
 }
 
 function displayDetectionResults(data) {
+  if (Array.isArray(data.results)) {
+    displayDetectionResultsBatch(data);
+    return;
+  }
+  // Reset table headers for single-image mode
+  const headerId = document.getElementById('detectionHeaderId');
+  const headerConf = document.getElementById('detectionHeaderConf');
+  const headerBox = document.getElementById('detectionHeaderBox');
+  const headerSku = document.getElementById('detectionHeaderSku');
+  const headerSim = document.getElementById('detectionHeaderSim');
+  if (headerId) headerId.textContent = 'ID';
+  if (headerConf) headerConf.textContent = 'Confidence';
+  if (headerBox) headerBox.textContent = 'Bounding Box (x,y,w,h)';
+  if (headerSku) headerSku.textContent = 'Matched SKU';
+  if (headerSim) headerSim.textContent = 'SKU Similarity';
+
   // Show results modal
   document.getElementById('detectionResultsModal').style.display = 'block';
 
@@ -4617,7 +4636,10 @@ function displayDetectionResults(data) {
 
   // Show uploaded image
   if (data.image_url) {
+    document.getElementById('detectionImagePreview').style.display = 'block';
     document.getElementById('detectionImagePreview').src = data.image_url;
+  } else {
+    document.getElementById('detectionImagePreview').style.display = 'none';
   }
 
   // Populate detections table
@@ -4800,6 +4822,140 @@ function displayDetectionResults(data) {
   }
 }
 
+function displayDetectionResultsBatch(batchData) {
+  // Show results modal
+  document.getElementById('detectionResultsModal').style.display = 'block';
+
+  const results = batchData.results || [];
+
+  // Update table headers for batch mode
+  const headerId = document.getElementById('detectionHeaderId');
+  const headerConf = document.getElementById('detectionHeaderConf');
+  const headerBox = document.getElementById('detectionHeaderBox');
+  const headerSku = document.getElementById('detectionHeaderSku');
+  const headerSim = document.getElementById('detectionHeaderSim');
+  if (headerId) headerId.textContent = 'Image #';
+  if (headerConf) headerConf.textContent = 'Avg Conf';
+  if (headerBox) headerBox.textContent = 'Boxes';
+  if (headerSku) headerSku.textContent = 'SKU List';
+  if (headerSim) headerSim.textContent = 'Top Similarity';
+
+  // Aggregate stats
+  let totalProducts = 0;
+  const aggregatedSkuMatches = {};
+
+  results.forEach(item => {
+    const res = (item && item.response) || {};
+    totalProducts += res.product_count || 0;
+    const skuMatches = res.sku_matches || {};
+    Object.entries(skuMatches).forEach(([sku, similarity]) => {
+      if (aggregatedSkuMatches[sku] === undefined) {
+        aggregatedSkuMatches[sku] = similarity;
+      } else {
+        aggregatedSkuMatches[sku] = Math.max(aggregatedSkuMatches[sku], similarity);
+      }
+    });
+  });
+
+  document.getElementById('detectionCount').textContent = totalProducts;
+  document.getElementById('uniqueSkuCount').textContent = Object.keys(aggregatedSkuMatches).length;
+
+  // Matching mode indicator for batch
+  const modeIndicator = document.getElementById('matchingModeIndicator');
+  if (modeIndicator) {
+    modeIndicator.style.backgroundColor = '#e2e3e5';
+    modeIndicator.style.borderLeftColor = '#6c757d';
+    document.getElementById('modeIcon').textContent = '📦';
+    document.getElementById('modeDescription').textContent = 'Batch scan (multiple images)';
+  }
+
+  // Hide single-image previews for batch
+  const imagePreview = document.getElementById('detectionImagePreview');
+  if (imagePreview) {
+    imagePreview.src = '';
+    imagePreview.style.display = 'none';
+  }
+  document.getElementById('cropsSection').style.display = 'none';
+
+  // Hide OCR sections (batch aggregates only)
+  const ocrSection = document.getElementById('ocrKeywordsSection');
+  if (ocrSection) ocrSection.style.display = 'none';
+  const ocrSkuSection = document.getElementById('ocrSkuMatchSection');
+  if (ocrSkuSection) ocrSkuSection.style.display = 'none';
+
+  // Populate detections table with per-image summaries
+  const tableBody = document.getElementById('detectionTableBody');
+  tableBody.innerHTML = '';
+
+  if (results.length > 0) {
+    results.forEach((item, idx) => {
+      const res = (item && item.response) || {};
+      const dets = res.detections || [];
+      const avgConf = dets.length
+        ? (dets.reduce((sum, d) => sum + (d.confidence || 0), 0) / dets.length)
+        : null;
+
+      // Build SKU list for this image
+      const skuMatches = res.sku_matches || {};
+      const skuEntries = Object.entries(skuMatches).sort((a, b) => b[1] - a[1]);
+      let topSim = null;
+      if (skuEntries.length > 0) {
+        topSim = skuEntries[0][1];
+      }
+      const skuListHtml = skuEntries.length
+        ? skuEntries.map(([sku, sim]) => (
+            `<div style="display:flex; justify-content:space-between; gap:6px;">
+               <span style="font-weight:bold; color:#333;">${sku}</span>
+               <span style="color:#667eea; font-weight:bold;">${(sim * 100).toFixed(1)}%</span>
+             </div>`
+          )).join('')
+        : '<div style="color:#999;">No SKU matches</div>';
+
+      const row = document.createElement('tr');
+      row.style.backgroundColor = (idx % 2 === 0) ? '#fff' : '#f9f9f9';
+
+      row.innerHTML = `
+        <td style="padding:8px; border:1px solid #ddd;">${idx + 1}</td>
+        <td style="padding:8px; border:1px solid #ddd; color:#667eea; font-weight:bold;">
+          ${avgConf !== null ? (avgConf * 100).toFixed(1) + '%' : '-'}
+        </td>
+        <td style="padding:8px; border:1px solid #ddd; font-family:monospace; font-size:10px;">
+          ${dets.length} box(es)
+        </td>
+        <td style="padding:8px; border:1px solid #ddd;">${skuListHtml}</td>
+        <td style="padding:8px; border:1px solid #ddd; color:#764ba2; font-weight:bold;">
+          ${topSim !== null ? (topSim * 100).toFixed(1) + '%' : '-'}
+        </td>
+      `;
+      tableBody.appendChild(row);
+    });
+  } else {
+    const row = document.createElement('tr');
+    row.innerHTML = '<td colspan="5" style="padding:10px; text-align:center; color:#999;">No images processed</td>';
+    tableBody.appendChild(row);
+  }
+
+  // Show aggregated SKU matches
+  const skuMatchesList = document.getElementById('skuMatchesList');
+  skuMatchesList.innerHTML = '';
+
+  const skuEntries = Object.entries(aggregatedSkuMatches).sort((a, b) => b[1] - a[1]);
+  if (skuEntries.length > 0) {
+    skuEntries.forEach(([sku, similarity]) => {
+      const matchDiv = document.createElement('div');
+      matchDiv.style.cssText = 'background:#f0f0f0; padding:10px; border-radius:6px; display:flex; justify-content:space-between; align-items:center;';
+      const percent = (similarity * 100).toFixed(1);
+      matchDiv.innerHTML = `
+        <span style="font-weight:bold; color:#333;">${sku}</span>
+        <div style="background:#667eea; color:white; padding:4px 12px; border-radius:20px; font-weight:bold; font-size:12px;">${percent}%</div>
+      `;
+      skuMatchesList.appendChild(matchDiv);
+    });
+  } else {
+    skuMatchesList.innerHTML = '<div style="padding:10px; color:#999;">No SKU matches found</div>';
+  }
+}
+
 function closeDetectionResults() {
   document.getElementById('detectionResultsModal').style.display = 'none';
 }
@@ -4810,7 +4966,72 @@ function openDetectionInNewTab() {
     return;
   }
 
+  const isBatch = Array.isArray(lastDetectionResults.results);
+
   const newTab = window.open('', '_blank');
+  if (isBatch) {
+    const results = lastDetectionResults.results || [];
+    const rows = results.map((item, idx) => {
+      const res = (item && item.response) || {};
+      const skuEntries = Object.entries(res.sku_matches || {}).sort((a, b) => b[1] - a[1]);
+      const skuList = skuEntries.length
+        ? skuEntries.map(([sku, sim]) => `${sku} (${(sim * 100).toFixed(1)}%)`).join(', ')
+        : '-';
+      const detCount = res.product_count || 0;
+      const status = item.status || 200;
+      const filename = item.filename || `image_${idx + 1}`;
+      const mode = res.matching_mode || 'unknown';
+      return `
+        <tr>
+          <td>${idx + 1}</td>
+          <td>${filename}</td>
+          <td>${detCount}</td>
+          <td>${skuList}</td>
+          <td>${mode}</td>
+          <td>${status}</td>
+        </tr>
+      `;
+    }).join('');
+
+    newTab.document.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Batch Detection Results</title>
+        <style>
+          body { font-family: 'Segoe UI', Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+          .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; }
+          h1 { color: #333; margin-bottom: 20px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+          th, td { padding: 10px; text-align: left; border: 1px solid #ddd; }
+          th { background: #f0f0f0; font-weight: bold; }
+          pre { background: #f5f5f5; padding: 15px; border-radius: 6px; overflow-x: auto; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <h1>📦 Batch Detection Results</h1>
+          <table>
+            <tr>
+              <th>#</th>
+              <th>Filename</th>
+              <th>Products</th>
+              <th>SKU List</th>
+              <th>Mode</th>
+              <th>Status</th>
+            </tr>
+            ${rows || '<tr><td colspan="6">No results</td></tr>'}
+          </table>
+          <h2>Raw JSON</h2>
+          <pre>${JSON.stringify(lastDetectionResults, null, 2)}</pre>
+        </div>
+      </body>
+      </html>
+    `);
+    newTab.document.close();
+    return;
+  }
+
   newTab.document.write(`
     <!DOCTYPE html>
     <html>

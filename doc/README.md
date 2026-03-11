@@ -34,6 +34,12 @@
 - Error handling
 - Response fields explanation
 
+### [9. API SCANIMG (JSON-Only)](09_API_SCANIMG.md)
+**GUI-equivalent POST endpoint**
+- Same backend pipeline as "Detect Products"
+- JSON-only response (no preview URLs)
+- cURL / JS / Python examples
+
 ---
 
 ## 🎯 Advanced Topics
@@ -93,7 +99,8 @@ doc/
 ├── 05_PERFECT_MATCH_TIMING.md
 ├── 06_WORKFLOW.md
 ├── 07_FAISS_INTEGRATION.md
-└── 08_CODE_QUALITY.md
+├── 08_CODE_QUALITY.md
+└── 09_API_SCANIMG.md
 ```
 
 ---

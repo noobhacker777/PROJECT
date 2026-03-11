@@ -685,6 +685,12 @@ def root_dashboard():
     return send_from_directory(str(PROJECT / 'static'), 'dashboard.html')
 
 
+@APP.route('/scan')
+def scan_dashboard():
+    """Serve GUI scan page (same as dashboard)."""
+    return send_from_directory(str(PROJECT / 'static'), 'dashboard.html')
+
+
 @APP.route('/api-demo')
 def api_demo():
     """Serve API documentation and testing page."""
@@ -2306,8 +2312,11 @@ def delete_index():
 
 
 @APP.route('/api/detect', methods=['POST'])
-def detect_products():
+def detect_products(json_only: bool = False):
     """Detect products in an uploaded image, crop them, and match to SKUs.
+
+    Query params:
+    - json_only: "true" to skip image/crop preview files (JSON only)
     
     Returns:
         {
@@ -2369,15 +2378,22 @@ def detect_products():
         
         height, width = image.shape[:2]
         
-        # Save image to tmp/ folder
+        # Allow API callers to skip image/crop file outputs
+        if request.args.get('json_only', 'false').lower() == 'true':
+            json_only = True
+
+        # Save image to tmp/ folder (GUI needs this for previews)
         tmp_dir = PROJECT / 'tmp'
         tmp_dir.mkdir(exist_ok=True)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         unique_id = str(uuid.uuid4())[:8]
         img_filename = f'scan_{timestamp}_{unique_id}.jpg'
-        img_path = tmp_dir / img_filename
-        cv2.imwrite(str(img_path), image)
-        image_url = f'/tmp/{img_filename}'
+        img_path = None
+        image_url = None
+        if not json_only:
+            img_path = tmp_dir / img_filename
+            cv2.imwrite(str(img_path), image)
+            image_url = f'/tmp/{img_filename}'
         
         # Use cached HOLO model (loaded on startup for speed)
         global HOLO_MODEL_CACHE
@@ -2494,11 +2510,12 @@ def detect_products():
                 crop_data = matcher.crop_detections(image, detections)
                 crops = crop_data['crops']
                 
-                # Save crops
-                image_base = img_filename.replace('.jpg', '')
-                crops_path = matcher.save_crops(crops, str(tmp_dir), image_base)
-                if crops_path:
-                    crops_url = f'/tmp/{os.path.basename(crops_path)}'
+                # Save crops preview image (GUI only)
+                if not json_only:
+                    image_base = img_filename.replace('.jpg', '')
+                    crops_path = matcher.save_crops(crops, str(tmp_dir), image_base)
+                    if crops_path:
+                        crops_url = f'/tmp/{os.path.basename(crops_path)}'
                 
                 # Check if accuracy mode is requested (prioritize exact matching over speed)
                 if accuracy_mode:
@@ -2672,19 +2689,20 @@ def detect_products():
             'product_count': product_count,
             'detections': detections,
             'image_size': [width, height],
-            'image_url': image_url,
             'message': f'Detected {product_count} product(s)',
             'matching_mode': matching_mode,
             'accuracy_mode_enabled': accuracy_mode,
             'ocr_keywords': ocr_data,
             'ocr_sku_match': ocr_sku_match
         }
+        if image_url:
+            response['image_url'] = image_url
         
         # Add mode description
         if matching_mode == 'cached_index':
-            response['mode_description'] = '⚡ Using cached FAISS index (fast!)'
+            response['mode_description'] = 'Using cached FAISS index (fast!)'
         elif matching_mode == 'raw_images':
-            response['mode_description'] = '📊 Using raw image processing (first-time)'
+            response['mode_description'] = 'Using raw image processing (first-time)'
         else:
             response['mode_description'] = 'No SKU matching performed'
         
@@ -2699,7 +2717,7 @@ def detect_products():
             time.sleep(2)
             cleanup_errors = []
             try:
-                if img_path.exists():
+                if img_path and img_path.exists():
                     try:
                         img_path.unlink()
                     except Exception as e:
@@ -2737,9 +2755,87 @@ def detect_products():
         }), 500
 
 
-@APP.route('/scan', methods=['GET'])
+@APP.route('/detect', methods=['POST'])
+def detect_products_alias():
+    """Alias for /api/detect (FAISS + OCR pipeline, JSON-only output)."""
+    return detect_products(json_only=True)
+
+
+@APP.route('/api/scanimg', methods=['POST'])
+def scanimg_api():
+    """API scan endpoint: same backend as GUI detect, JSON-only output.
+
+    Supports multiple images by repeating the "image" field in multipart.
+    """
+    # Collect files from "image" or "images"
+    files = []
+    try:
+        files = request.files.getlist('image')
+    except Exception:
+        files = []
+    if not files:
+        try:
+            files = request.files.getlist('images')
+        except Exception:
+            files = []
+
+    if not files:
+        # Fallback to single-image behavior (will return proper 400 if missing)
+        return detect_products(json_only=True)
+
+    if len(files) == 1:
+        # Ensure the single file is accessible via "image"
+        if 'image' not in request.files:
+            token = FILES_CONTEXT.set(MultiDictProxy({'image': [files[0]]}))
+            try:
+                return detect_products(json_only=True)
+            finally:
+                FILES_CONTEXT.reset(token)
+        return detect_products(json_only=True)
+
+    # Multiple files: run detection per image and aggregate results
+    results = []
+    all_ok = True
+    for file_obj in files:
+        token = FILES_CONTEXT.set(MultiDictProxy({'image': [file_obj]}))
+        try:
+            resp = detect_products(json_only=True)
+        finally:
+            FILES_CONTEXT.reset(token)
+
+        status_code = getattr(resp, 'status_code', 200)
+        payload = None
+        if isinstance(resp, Response):
+            try:
+                body = getattr(resp, 'body', b'')
+                payload = json.loads(body.decode('utf-8')) if body else {}
+            except Exception:
+                payload = {}
+        elif isinstance(resp, tuple):
+            payload = resp[0]
+            status_code = resp[1] if len(resp) > 1 else status_code
+        else:
+            payload = resp
+
+        ok = status_code < 400
+        all_ok = all_ok and ok
+        results.append({
+            'filename': getattr(file_obj, 'filename', None),
+            'status': status_code,
+            'ok': ok,
+            'response': payload
+        })
+
+    return jsonify({
+        'success': all_ok,
+        'count': len(results),
+        'results': results
+    }), 200
+
+
+@APP.route('/api/scan', methods=['GET'])
 def scan_image_simple():
-    """Simple GET endpoint for scanning images via URL - returns JSON API response.
+    """Legacy GET endpoint for scanning images via URL - returns JSON API response.
 
         Returns: JSON with detections, SKU matches, and image URLs
     """
@@ -2753,7 +2849,7 @@ def scan_image_simple():
             'success': False,
             'product_count': 0,
             'detections': [],
-            'error': 'No image provided. Usage: /scan?image=IMG_1445.jpeg or /scan?image=http://...'
+            'error': 'No image provided. Usage: /api/scan?image=IMG_1445.jpeg or /api/scan?image=http://...'
         }), 400
 
     
@@ -3014,6 +3110,7 @@ def scan_image_simple():
                 initialize_sku_embeddings()
             
             # Initialize OCR reader if enabled
+            global OCR_READER_CACHE
             ocr_reader = None
             if OCR_AVAILABLE:
                 try:
@@ -3148,7 +3245,7 @@ def scan_image_simple():
             
             # Validation logic:
             # MUST HAVE: FAISS match
-            # VALIDATE WITH: OCR wrapper text (if available)
+            # VALIDATE WITH: OCR wrapper text (required)
             
             is_validated = False
             validation_level = 'INVALID'
@@ -3162,17 +3259,17 @@ def scan_image_simple():
                         det['validation_status'] = '✓ VALIDATED'
                         print(f"[RESULT] Detection {det['id']}: ✓✓ HIGH confidence - SKU match + wrapper verified ({wrapper_score:.1%})")
                     else:
-                        # WARNING: FAISS match but wrapper doesn't contain SKU
-                        is_validated = True  # Still count it, but mark as low confidence
-                        validation_level = 'LOW'
-                        det['validation_status'] = '⚠ FAISS ONLY'
-                        print(f"[RESULT] Detection {det['id']}: ⚠ LOW confidence - FAISS match but SKU NOT in wrapper ({wrapper_score:.1%})")
+                        # OCR text exists but SKU name not found in wrapper text
+                        is_validated = False
+                        validation_level = 'INVALID'
+                        det['validation_status'] = 'OCR MISMATCH'
+                        print(f"[RESULT] Detection {det['id']}: SKIPPED - OCR text does not contain SKU ({wrapper_score:.1%})")
                 else:
-                    # MEDIUM: FAISS match but no OCR text to validate
-                    is_validated = True
-                    validation_level = 'MEDIUM'
-                    det['validation_status'] = '⚡ FAISS ONLY (No OCR)'
-                    print(f"[RESULT] Detection {det['id']}: ⚡ MEDIUM confidence - FAISS match, no wrapper text detected")
+                    # Require OCR text for validation (skip FAISS-only results)
+                    is_validated = False
+                    validation_level = 'INVALID'
+                    det['validation_status'] = 'NO OCR'
+                    print(f"[RESULT] Detection {det['id']}: SKIPPED - FAISS match but no OCR text detected")
             
             det['validation_level'] = validation_level
             
@@ -3184,7 +3281,7 @@ def scan_image_simple():
         # Update response with validated count (one entry per box, no duplicates)
         response_data['product_count'] = validated_count
         response_data['detections'] = validated_detections
-        response_data['message'] = f'Detected {validated_count} confirmed product(s) - SKU name validated in wrapper'
+        response_data['message'] = f'Detected {validated_count} confirmed product(s) - FAISS + OCR wrapper validation'
 
         # Keep sku_matches aligned with final validated detections only.
         final_sku_matches = {}
