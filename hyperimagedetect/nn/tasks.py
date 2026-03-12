@@ -456,15 +456,17 @@ class SafeUnpickler(pickle.Unpickler):
         try:
             if module in safe_modules or module.startswith(("torch.", "numpy.", "hyperimagedetect.")):
                 return super().find_class(module, name)
-            import sys
-            from importlib import import_module
+                # ...existing code...
+                from importlib import import_module
 
-            if module not in sys.modules:
-                import_module(module)
-            return super().find_class(module, name)
+                if module not in sys.modules:
+                    import_module(module)
+                return super().find_class(module, name)
         except (ModuleNotFoundError, AttributeError):
             return SafeClass
 
+
+# Standalone function at module level
 def torch_safe_load(weight, safe_only=False):
     from pathlib import Path
 
