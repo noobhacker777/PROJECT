@@ -1,0 +1,46 @@
+{
+  "image_name": "3.png",
+  "image_stem": "3",
+  "image_width": 841,
+  "image_height": 649,
+  "timestamp": "2026-03-13T10:25:58.808Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.549167,
+        0.578011,
+        0.25,
+        0.768915
+      ],
+      "class_name": "product",
+      "sku": "SILK",
+      "cropped": "openclip_dataset/SILK HAZELNUT/2_box0.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.821667,
+        0.599195,
+        0.275,
+        0.740127
+      ],
+      "class_name": "product",
+      "sku": "SILK BUBBLY",
+      "cropped": "openclip_dataset/SILK BUBBLY/2_box1.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.289167,
+        0.567118,
+        0.265,
+        0.798877
+      ],
+      "class_name": "product",
+      "sku": "SILK HAZELNUT",
+      "cropped": "openclip_dataset/FRUIT & NUT/2_box2.jpg"
+    }
+  ]
+}

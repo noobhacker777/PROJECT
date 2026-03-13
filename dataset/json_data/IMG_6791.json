@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_6791.JPG",
+  "image_stem": "IMG_6791",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-13T10:40:16.952Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.529167,
+        0.481631,
+        0.405,
+        0.826156
+      ],
+      "class_name": "product",
+      "sku": "SPRINGLES G",
+      "cropped": "openclip_dataset/SPRINGLES G/IMG_6791_box0.jpg"
+    }
+  ]
+}

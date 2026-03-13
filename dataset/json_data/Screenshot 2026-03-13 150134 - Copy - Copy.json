@@ -1,0 +1,22 @@
+{
+  "image_name": "Screenshot 2026-03-13 150134 - Copy - Copy.png",
+  "image_stem": "Screenshot 2026-03-13 150134 - Copy - Copy",
+  "image_width": 515,
+  "image_height": 847,
+  "timestamp": "2026-03-13T10:27:00.475Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.479167,
+        0.549204,
+        0.51,
+        0.703814
+      ],
+      "class_name": "product",
+      "sku": "SPRITE",
+      "cropped": null
+    }
+  ]
+}

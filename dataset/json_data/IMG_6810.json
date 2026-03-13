@@ -1,0 +1,46 @@
+{
+  "image_name": "IMG_6810.JPG",
+  "image_stem": "IMG_6810",
+  "image_width": 4284,
+  "image_height": 5712,
+  "timestamp": "2026-03-13T11:02:36.398Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.795417,
+        0.390045,
+        0.3175,
+        0.612107
+      ],
+      "class_name": "product",
+      "sku": "SPRINGLES W",
+      "cropped": "openclip_dataset/SPRINGLES W/IMG_6810_box0_abm9xr.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.181667,
+        0.406004,
+        0.35,
+        0.640271
+      ],
+      "class_name": "product",
+      "sku": "SPRINGLES R",
+      "cropped": "openclip_dataset/SPRINGLES R/IMG_6810_box1_rszzt9.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.490417,
+        0.402249,
+        0.2675,
+        0.61774
+      ],
+      "class_name": "product",
+      "sku": "SPRINGLES G",
+      "cropped": "openclip_dataset/SPRINGLES G/IMG_6810_box2_yebvvh.jpg"
+    }
+  ]
+}

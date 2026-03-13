@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_6803.JPG",
+  "image_stem": "IMG_6803",
+  "image_width": 4284,
+  "image_height": 5712,
+  "timestamp": "2026-03-13T10:49:13.419Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.469167,
+        0.49008,
+        0.625,
+        0.719132
+      ],
+      "class_name": "product",
+      "sku": "CRAX",
+      "cropped": null
+    }
+  ]
+}

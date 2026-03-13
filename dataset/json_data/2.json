@@ -1,0 +1,46 @@
+{
+  "image_name": "2.png",
+  "image_stem": "2",
+  "image_width": 400,
+  "image_height": 294,
+  "timestamp": "2026-03-13T10:24:58.925Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.497917,
+        0.512654,
+        0.2925,
+        0.899629
+      ],
+      "class_name": "product",
+      "sku": "SILK HAZELNUT",
+      "cropped": null
+    },
+    {
+      "bbox": [
+        0,
+        0.821667,
+        0.516049,
+        0.275,
+        0.906418
+      ],
+      "class_name": "product",
+      "sku": "SILK BUBBLY",
+      "cropped": null
+    },
+    {
+      "bbox": [
+        0,
+        0.171667,
+        0.48889,
+        0.28,
+        0.892839
+      ],
+      "class_name": "product",
+      "sku": "FRUIT & NUT",
+      "cropped": null
+    }
+  ]
+}

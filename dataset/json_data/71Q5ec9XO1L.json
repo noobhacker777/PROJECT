@@ -1,0 +1,22 @@
+{
+  "image_name": "71Q5ec9XO1L.jpg",
+  "image_stem": "71Q5ec9XO1L",
+  "image_width": 900,
+  "image_height": 1600,
+  "timestamp": "2026-03-13T10:26:31.769Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.515417,
+        0.406006,
+        0.5375,
+        0.751366
+      ],
+      "class_name": "product",
+      "sku": "SILK",
+      "cropped": null
+    }
+  ]
+}

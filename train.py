@@ -84,7 +84,7 @@ def main():
     # Load model - always train from scratch
     print("\nLoading model...")
     print("Training from scratch with base HOLO11 model...")
-    model = HOLO('holo11m.pt')
+    model = HOLO('holo11l.pt')
     print("✓ Model loaded successfully")
     
     # Training parameters optimized for high accuracy (0.96+)

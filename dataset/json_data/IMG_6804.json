@@ -1,0 +1,34 @@
+{
+  "image_name": "IMG_6804.JPG",
+  "image_stem": "IMG_6804",
+  "image_width": 4284,
+  "image_height": 5712,
+  "timestamp": "2026-03-13T10:48:47.583Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.321667,
+        0.4591,
+        0.58,
+        0.649659
+      ],
+      "class_name": "product",
+      "sku": "CRAX",
+      "cropped": "openclip_dataset/CRAX/IMG_6804_box0_831vu6.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.771667,
+        0.448668,
+        0.395,
+        0.50696
+      ],
+      "class_name": "product",
+      "sku": "KURKURE",
+      "cropped": "openclip_dataset/KURKURE/IMG_6804_box1.jpg"
+    }
+  ]
+}
