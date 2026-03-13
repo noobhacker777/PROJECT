@@ -501,26 +501,38 @@ def extract_ocr_keywords(image):
                     print("[OCR] ✓ EasyOCR initialized with CPU")
             reader = OCR_READER_CACHE
         
-        # Try OCR on original image first
-        results = reader.readtext(processed_image)
-        
-        # If no results or very few results, try rotations
-        if not results or len(results) < 2:
-            print("[OCR] 🔄 Attempting rotations to find text...")
-            for angle in [90, 180, 270]:
+        # Try OCR on all rotations and pick the one with highest average confidence
+        best_results = None
+        best_avg_conf = 0.0
+        best_angle = 0
+        best_orientation = 'horizontal'
+        best_image = processed_image
+        for angle in [0, 90, 180, 270]:
+            if angle == 0:
+                test_img = processed_image
+            else:
                 h, w = original_image.shape[:2]
                 center = (w // 2, h // 2)
                 matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-                rotated = cv2.warpAffine(original_image, matrix, (w, h))
-                
-                rotated_results = reader.readtext(rotated)
-                
-                if len(rotated_results) > len(results):
-                    print(f"[OCR] ✓ Better results found at {angle}° rotation")
-                    results = rotated_results
-                    rotation_angle = angle
-                    processed_image = rotated
-                    text_orientation = 'vertical' if angle in [90, 270] else 'horizontal'
+                test_img = cv2.warpAffine(original_image, matrix, (w, h))
+            test_results = reader.readtext(test_img)
+            # Compute average confidence for this rotation
+            if test_results:
+                avg_conf = sum(float(conf) for _, _, conf in test_results) / len(test_results)
+            else:
+                avg_conf = 0.0
+            if avg_conf > best_avg_conf or (avg_conf == best_avg_conf and test_results and (not best_results or len(test_results) > len(best_results))):
+                best_results = test_results
+                best_avg_conf = avg_conf
+                best_angle = angle
+                best_image = test_img
+                best_orientation = 'vertical' if angle in [90, 270] else 'horizontal'
+        results = best_results
+        rotation_angle = best_angle
+        processed_image = best_image
+        text_orientation = best_orientation
+        if rotation_angle != 0:
+            print(f"[OCR] Applied {rotation_angle}° rotation (text was likely vertical)")
         
         if rotation_angle != 0:
             print(f"[OCR] Applied {rotation_angle}° rotation (text was vertical)")

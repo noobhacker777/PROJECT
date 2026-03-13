@@ -266,35 +266,31 @@ class CropProcessor:
                 use_accuracy_mode
             )
             result['sku_match'] = sku_match
-            
+
             has_sku_match = bool(sku_match.get('matched_sku'))
             result['has_sku_match'] = has_sku_match
-            
+
+
             # Step 4: Validate
-            # Valid if: has OCR text OR has SKU match (or both)
-            is_valid = has_ocr_text or has_sku_match
+            # Only valid if OCR finds text (prevents background-only crops from being classified as products)
+            is_valid = has_ocr_text
             result['is_valid'] = is_valid
-            
-            # Calculate confidence
-            ocr_confidence = ocr_data.get('average_confidence', 0.0) if has_ocr_text else 0.0
-            sku_confidence = sku_match.get('similarity', 0.0) if has_sku_match else 0.0
-            
-            # Combine confidences: prefer SKU match (FAISS is very accurate)
-            if has_sku_match:
-                result['confidence'] = sku_confidence
-            elif has_ocr_text:
-                result['confidence'] = ocr_confidence
-            else:
-                result['confidence'] = 0.0
-            
+
+            # Improved confidence calculation: use OCR+SKU combined
+            ocr_keywords = ocr_data.get('keywords', []) if ocr_data else []
+            matched_sku_name = sku_match.get('matched_sku', '') if sku_match else ''
+            ocr_text_match = self.match_ocr_keywords_to_sku(ocr_keywords, matched_sku_name) if matched_sku_name else {'matched': False, 'average_similarity': 0.0}
+            faiss_similarity = sku_match.get('similarity', 0.0) if sku_match else 0.0
+            result['confidence'] = self.calculate_combined_confidence(faiss_similarity, ocr_text_match)
+
             # Log result
             status = "✓ VALID" if is_valid else "✗ INVALID"
             logger.info(
                 f"Crop {crop_index}: {status} | "
                 f"OCR: {has_ocr_text} | SKU: {sku_match.get('matched_sku', 'None')} "
-                f"({sku_confidence:.3f}) | Confidence: {result['confidence']:.3f}"
+                f"({faiss_similarity:.3f}) | Confidence: {result['confidence']:.3f}"
             )
-            
+
             return result
             
         except Exception as e:
@@ -434,8 +430,7 @@ class CropProcessor:
     # Parallel Processing & OCR-SKU Text Matching
     # =========================================================================
     
-    def match_ocr_keywords_to_sku(self, ocr_keywords: List[Dict], sku_name: str,
-                                  similarity_threshold: float = 0.6) -> Dict:
+    def match_ocr_keywords_to_sku(self, ocr_keywords: List[Dict[str, object]], sku_name: str, similarity_threshold: float = 0.75) -> Dict[str, object]:
         """Match OCR keywords to SKU name using text similarity.
         
         Extracts words from SKU name and finds matches in OCR keywords.
@@ -465,7 +460,7 @@ class CropProcessor:
             sku_words = sku_name.upper().split()
             
             # Extract text from OCR keywords
-            ocr_texts = [kw.get('text', '').upper() for kw in ocr_keywords]
+            ocr_texts = [str(kw.get('text', '')).upper() for kw in ocr_keywords]
             
             matched_keywords = []
             similarity_scores = {}
@@ -473,8 +468,11 @@ class CropProcessor:
             # Try to match each SKU word to OCR keywords
             for sku_word in sku_words:
                 for ocr_kw in ocr_keywords:
-                    ocr_text = ocr_kw.get('text', '').upper()
-                    ocr_conf = ocr_kw.get('confidence', 0.0)
+                    ocr_text = str(ocr_kw.get('text', '')).upper()
+                    try:
+                        ocr_conf = float(str(ocr_kw.get('confidence', 0.0)))
+                    except (ValueError, TypeError):
+                        ocr_conf = 0.0
                     
                     # Calculate text similarity using SequenceMatcher
                     similarity = SequenceMatcher(None, sku_word, ocr_text).ratio()
@@ -518,8 +516,8 @@ class CropProcessor:
             }
     
     def calculate_combined_confidence(self, faiss_similarity: float,
-                                     ocr_text_match: Dict,
-                                     weights: Dict = None) -> float:
+                                     ocr_text_match: Dict[str, object],
+                                     weights: Dict[str, float] = None) -> float:
         """Calculate combined confidence from FAISS + OCR matching.
         
         Formula: weighted_avg(faiss_similarity, ocr_match_score)
@@ -535,23 +533,20 @@ class CropProcessor:
             Combined confidence score (0.0-1.0)
         """
         if weights is None:
-            weights = {'faiss': 0.60, 'ocr': 0.40}
-        
+            weights = {'faiss': 0.40, 'ocr': 0.60}  # OCR gets more priority if matched
         try:
-            # If OCR found a match, combine scores
             if ocr_text_match.get('matched'):
                 ocr_score = ocr_text_match.get('average_similarity', 0.0)
-                combined = (
-                    weights['faiss'] * faiss_similarity +
-                    weights['ocr'] * ocr_score
-                )
+                # If OCR match is very strong, let it dominate
+                if ocr_score > 0.85:
+                    combined = 0.8 * ocr_score + 0.2 * faiss_similarity
+                else:
+                    combined = weights['faiss'] * faiss_similarity + weights['ocr'] * ocr_score
                 return min(1.0, max(0.0, round(combined, 3)))
             else:
                 # Only FAISS match, no OCR confirmation
-                # Reduce confidence if OCR couldn't match
-                reduced = faiss_similarity * 0.8  # 20% penalty for no OCR confirmation
+                reduced = faiss_similarity * 0.7  # 30% penalty for no OCR confirmation
                 return round(reduced, 3)
-                
         except Exception as e:
             logger.error(f"Error calculating combined confidence: {e}")
             return faiss_similarity  # Fallback to FAISS only

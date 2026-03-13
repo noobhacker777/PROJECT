@@ -1,7 +1,15 @@
 {
   "skus": [
-    "CAMPA BOTTLE", "OREO MEGAPACK", "SILK", "SILK BUBBLY", "SILK HAZELNUT", "chataka_pataka", "happydent"
+    "CAMPA BOTTLE",
+    "KITKAT",
+    "OREO MEGAPACK",
+    "SILK",
+    "SILK BUBBLY",
+    "SILK HAZELNUT",
+    "SPRITE",
+    "chataka_pataka",
+    "happydent"
   ],
-  "timestamp": "2026-02-17T10:16:07.771946",
-  "total_skus": 7
+  "timestamp": "2026-03-13T10:00:23.601118",
+  "total_skus": 9
 }
