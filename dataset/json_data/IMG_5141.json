@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5141.JPG",
+  "image_stem": "IMG_5141",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T12:58:36.238Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.57,
+        0.653329,
+        0.2625,
+        0.593253
+      ],
+      "class_name": "product",
+      "sku": "RASEELA EMLEE FRUIT PASTE",
+      "cropped": null
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_4996.JPG",
+  "image_stem": "IMG_4996",
+  "image_width": 4032,
+  "image_height": 3024,
+  "timestamp": "2026-03-18T12:06:50.752Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.5125,
+        0.485857,
+        0.3275,
+        0.745424
+      ],
+      "class_name": "product",
+      "sku": "AMUL CHEESE 8 CUBE PACK 200 GM",
+      "cropped": null
+    }
+  ]
+}

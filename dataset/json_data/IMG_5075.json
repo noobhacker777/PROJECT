@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5075.JPG",
+  "image_stem": "IMG_5075",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T12:21:22.448Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.34875,
+        0.46653,
+        0.33,
+        0.441185
+      ],
+      "class_name": "product",
+      "sku": "NESCAFE CLASSIC COFFEE POWDER",
+      "cropped": null
+    }
+  ]
+}

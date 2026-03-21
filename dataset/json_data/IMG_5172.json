@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5172.JPG",
+  "image_stem": "IMG_5172",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T12:50:55.302Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.5025,
+        0.501261,
+        0.9525,
+        0.623291
+      ],
+      "class_name": "product",
+      "sku": "AMUL GOLD MILKY MILK 500 ML",
+      "cropped": null
+    }
+  ]
+}

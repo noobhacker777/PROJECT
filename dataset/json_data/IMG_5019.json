@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5019.JPG",
+  "image_stem": "IMG_5019",
+  "image_width": 4032,
+  "image_height": 3024,
+  "timestamp": "2026-03-18T12:01:59.824Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.4675,
+        0.349418,
+        0.6875,
+        0.69218
+      ],
+      "class_name": "product",
+      "sku": "BALAJI CHATAKA PATAKA",
+      "cropped": null
+    }
+  ]
+}

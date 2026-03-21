@@ -1,0 +1,34 @@
+{
+  "image_name": "IMG_0102.JPG",
+  "image_stem": "IMG_0102",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T09:17:21.117Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.50625,
+        0.374538,
+        0.695,
+        0.223409
+      ],
+      "class_name": "product",
+      "sku": "DAIRY MILK SILK FRUIT N NUT",
+      "cropped": null
+    },
+    {
+      "bbox": [
+        0,
+        0.4925,
+        0.643943,
+        0.9725,
+        0.300381
+      ],
+      "class_name": "product",
+      "sku": "CADBURY DAIRY MILK SILK FRUIT N NUT",
+      "cropped": null
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0091.JPG",
+  "image_stem": "IMG_0091",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T09:07:19.139Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.505,
+        0.495629,
+        0.6825,
+        0.991258
+      ],
+      "class_name": "product",
+      "sku": "DAIRY MILK SILK FRUIT N NUT",
+      "cropped": null
+    }
+  ]
+}

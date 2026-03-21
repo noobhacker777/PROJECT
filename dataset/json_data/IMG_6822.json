@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_6822.JPG",
+  "image_stem": "IMG_6822",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T06:14:42.049Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.49625,
+        0.519097,
+        0.31,
+        0.505016
+      ],
+      "class_name": "product",
+      "sku": "COKE ZERO",
+      "cropped": null
+    }
+  ]
+}

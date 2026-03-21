@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5059.JPG",
+  "image_stem": "IMG_5059",
+  "image_width": 4032,
+  "image_height": 3024,
+  "timestamp": "2026-03-18T12:41:26.031Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.535,
+        0.52579,
+        0.7425,
+        0.452579
+      ],
+      "class_name": "product",
+      "sku": "NESTLEY KITKAT RICH DELIGHTS",
+      "cropped": null
+    }
+  ]
+}

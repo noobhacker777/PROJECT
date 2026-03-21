@@ -1,0 +1,46 @@
+{
+  "image_name": "IMG_6792 (1).JPG",
+  "image_stem": "IMG_6792 (1)",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T08:30:20.208Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.43375,
+        0.320094,
+        0.8,
+        0.238428
+      ],
+      "class_name": "product",
+      "sku": "CADBURY DAIRY MILK SILK HAZELNUT",
+      "cropped": "openclip_dataset/CADBURY DAIRY MILK SILK HAZELNUT/IMG_6792 (1)_box0_fvto5m.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.42,
+        0.570725,
+        0.8075,
+        0.251569
+      ],
+      "class_name": "product",
+      "sku": "CADBURY DAIRY MILK SILK YOU MELT MY",
+      "cropped": "openclip_dataset/CADBURY DAIRY MILK SILK YOU MELT MY/IMG_6792 (1)_box1.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.39875,
+        0.815723,
+        0.77,
+        0.223409
+      ],
+      "class_name": "product",
+      "sku": "CADBURY DAIRY MILK SILK BUBBLY",
+      "cropped": null
+    }
+  ]
+}

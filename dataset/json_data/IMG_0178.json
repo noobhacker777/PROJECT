@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0178.JPG",
+  "image_stem": "IMG_0178",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T10:45:07.986Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.4525,
+        0.520974,
+        0.6375,
+        0.617659
+      ],
+      "class_name": "product",
+      "sku": "FANTA ORANGE FLAVOURED 8*250 ML",
+      "cropped": null
+    }
+  ]
+}

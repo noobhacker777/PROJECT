@@ -1,0 +1,34 @@
+{
+  "image_name": "IMG_5014.JPG",
+  "image_stem": "IMG_5014",
+  "image_width": 4032,
+  "image_height": 3024,
+  "timestamp": "2026-03-18T11:59:27.692Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.72375,
+        0.459235,
+        0.48,
+        0.891847
+      ],
+      "class_name": "product",
+      "sku": "KISSAN FRESH TOMATO KETCHUP 1.2 KG",
+      "cropped": "openclip_dataset/KISSAN FRESH TOMATO KETCHUP 1.2 KG/IMG_0205_box0_fhn92o.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.29875,
+        0.532446,
+        0.37,
+        0.785358
+      ],
+      "class_name": "product",
+      "sku": "KISSAN FRESH TOMATO KETCHUP 900 GM",
+      "cropped": "openclip_dataset/KISSAN FRESH TOMATO KETCHUP 900 GM/IMG_0205_box1.jpg"
+    }
+  ]
+}

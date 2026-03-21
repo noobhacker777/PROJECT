@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0108.JPG",
+  "image_stem": "IMG_0108",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T09:23:09.333Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.66125,
+        0.558522,
+        0.415,
+        0.752831
+      ],
+      "class_name": "product",
+      "sku": "CADBURY BOURNVILLE CLASSIC 50% DARK",
+      "cropped": null
+    }
+  ]
+}

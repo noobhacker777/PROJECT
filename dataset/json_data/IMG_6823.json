@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_6823.JPG",
+  "image_stem": "IMG_6823",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-13T07:20:40.871Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.57875,
+        0.543502,
+        0.31,
+        0.497507
+      ],
+      "class_name": "product",
+      "sku": "COCK ZERO",
+      "cropped": "openclip_dataset/COCK ZERO/IMG_6821_1_box0.jpg"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_6840.JPG",
+  "image_stem": "IMG_6840",
+  "image_width": 1838,
+  "image_height": 3804,
+  "timestamp": "2026-03-13T09:32:03.641Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.53625,
+        0.496162,
+        0.4825,
+        0.884848
+      ],
+      "class_name": "product",
+      "sku": "KITAKT 50 RUPEES",
+      "cropped": "openclip_dataset/KITAKT 50 RUPEES/Image from iOS (4)_box0.jpg"
+    }
+  ]
+}

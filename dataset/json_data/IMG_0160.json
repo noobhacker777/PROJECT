@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0160.JPG",
+  "image_stem": "IMG_0160",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T10:30:03.410Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.525,
+        0.540686,
+        0.6175,
+        0.649575
+      ],
+      "class_name": "product",
+      "sku": "KURKURE MASALA MUNCH",
+      "cropped": null
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0142.JPG",
+  "image_stem": "IMG_0142",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T10:09:55.084Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.48,
+        0.574479,
+        0.2825,
+        0.713406
+      ],
+      "class_name": "product",
+      "sku": "PRINGLES PERI PERI FLAVOUR",
+      "cropped": null
+    }
+  ]
+}

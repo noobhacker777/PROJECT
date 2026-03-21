@@ -1,0 +1,34 @@
+{
+  "image_name": "IMG_6806.JPG",
+  "image_stem": "IMG_6806",
+  "image_width": 4284,
+  "image_height": 5712,
+  "timestamp": "2026-03-18T06:00:25.239Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.7975,
+        0.455265,
+        0.3975,
+        0.501261
+      ],
+      "class_name": "product",
+      "sku": "KURKURE SOLID MASTI MASALA TWISTEEZ",
+      "cropped": "openclip_dataset/KURKURE SOLID MASTI MASALA TWISTEEZ/IMG_6804_3_box0_k971se.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.335,
+        0.459959,
+        0.5425,
+        0.623291
+      ],
+      "class_name": "product",
+      "sku": "CRAX CRUNCHY NOODLES",
+      "cropped": "openclip_dataset/CRAX CRUNCHY NOODLES/IMG_6804_3_box1.jpg"
+    }
+  ]
+}

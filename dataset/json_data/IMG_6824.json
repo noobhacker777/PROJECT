@@ -1,0 +1,34 @@
+{
+  "image_name": "IMG_6824.JPG",
+  "image_stem": "IMG_6824",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T06:16:02.467Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.4025,
+        0.489058,
+        0.2325,
+        0.456204
+      ],
+      "class_name": "product",
+      "sku": "COKE ZERO",
+      "cropped": "openclip_dataset/COKE ZERO/IMG_6824_box0.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.6475,
+        0.483426,
+        0.2475,
+        0.448695
+      ],
+      "class_name": "product",
+      "sku": "SPRITE",
+      "cropped": null
+    }
+  ]
+}

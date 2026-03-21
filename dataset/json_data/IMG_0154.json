@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0154.JPG",
+  "image_stem": "IMG_0154",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T10:24:08.004Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.46,
+        0.611088,
+        0.6725,
+        0.741566
+      ],
+      "class_name": "product",
+      "sku": "BALAJI TOMATO TWIST",
+      "cropped": null
+    }
+  ]
+}

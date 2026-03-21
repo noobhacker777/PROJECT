@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5045.JPG",
+  "image_stem": "IMG_5045",
+  "image_width": 4032,
+  "image_height": 3024,
+  "timestamp": "2026-03-18T12:34:16.463Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.565,
+        0.597338,
+        0.4525,
+        0.25624
+      ],
+      "class_name": "product",
+      "sku": "HAPPYDENT WHITE",
+      "cropped": null
+    }
+  ]
+}

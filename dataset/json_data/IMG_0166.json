@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0166.JPG",
+  "image_stem": "IMG_0166",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T10:35:40.282Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.50625,
+        0.560399,
+        0.48,
+        0.854209
+      ],
+      "class_name": "product",
+      "sku": "THUMS UP 8*250 ML",
+      "cropped": null
+    }
+  ]
+}

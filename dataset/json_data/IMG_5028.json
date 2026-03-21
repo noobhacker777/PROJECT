@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5028.JPG",
+  "image_stem": "IMG_5028",
+  "image_width": 4032,
+  "image_height": 3024,
+  "timestamp": "2026-03-18T12:29:42.790Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.5175,
+        0.562396,
+        0.8425,
+        0.52579
+      ],
+      "class_name": "product",
+      "sku": "AMUL FRUIT N NUT DARK CHOCOLATE",
+      "cropped": null
+    }
+  ]
+}

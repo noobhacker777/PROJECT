@@ -3,20 +3,20 @@
   "image_stem": "IMG_6793",
   "image_width": 3024,
   "image_height": 4032,
-  "timestamp": "2026-03-13T10:40:27.968Z",
+  "timestamp": "2026-03-13T06:59:54.767Z",
   "class_name": "product",
   "boxes": [
     {
       "bbox": [
         0,
-        0.404167,
-        0.540463,
-        0.305,
-        0.645904
+        0.4075,
+        0.528483,
+        0.3275,
+        0.666471
       ],
       "class_name": "product",
-      "sku": "SPRINGLES G",
-      "cropped": "openclip_dataset/SPRINGLES G/IMG_6793_box0.jpg"
+      "sku": "PRINGLES CREAM N ONION",
+      "cropped": "openclip_dataset/PRINGLES CREAM N ONION/IMG_6793_box0.jpg"
     }
   ]
 }

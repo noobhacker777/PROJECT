@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0184.JPG",
+  "image_stem": "IMG_0184",
+  "image_width": 4032,
+  "image_height": 3024,
+  "timestamp": "2026-03-18T10:47:29.746Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.5,
+        0.321131,
+        0.9875,
+        0.442596
+      ],
+      "class_name": "product",
+      "sku": "MAGGI NOODLES 8 PACK",
+      "cropped": null
+    }
+  ]
+}

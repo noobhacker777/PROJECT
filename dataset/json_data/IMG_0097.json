@@ -1,0 +1,34 @@
+{
+  "image_name": "IMG_0097.JPG",
+  "image_stem": "IMG_0097",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T09:12:38.414Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.5725,
+        0.563215,
+        0.4775,
+        0.750953
+      ],
+      "class_name": "product",
+      "sku": "CADBURY DAIRY MILK SILK BUBBLY",
+      "cropped": "openclip_dataset/CADBURY DAIRY MILK SILK BUBBLY/IMG_0097_box0.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.19,
+        0.715283,
+        0.3525,
+        0.525667
+      ],
+      "class_name": "product",
+      "sku": "DAIRY MILK SILK BUBBLY MINI",
+      "cropped": null
+    }
+  ]
+}

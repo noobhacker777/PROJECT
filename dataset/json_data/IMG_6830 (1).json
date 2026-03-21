@@ -1,0 +1,46 @@
+{
+  "image_name": "IMG_6830 (1).JPG",
+  "image_stem": "IMG_6830 (1)",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T06:17:48.804Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.195,
+        0.382986,
+        0.2125,
+        0.364212
+      ],
+      "class_name": "product",
+      "sku": "COKE ZERO",
+      "cropped": null
+    },
+    {
+      "bbox": [
+        0,
+        0.43,
+        0.391434,
+        0.2475,
+        0.403637
+      ],
+      "class_name": "product",
+      "sku": "SPRITE",
+      "cropped": null
+    },
+    {
+      "bbox": [
+        0,
+        0.7725,
+        0.290994,
+        0.3075,
+        0.461836
+      ],
+      "class_name": "product",
+      "sku": "SPRITE",
+      "cropped": null
+    }
+  ]
+}

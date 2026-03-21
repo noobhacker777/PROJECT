@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_6818.JPG",
+  "image_stem": "IMG_6818",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T06:11:11.139Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.4825,
+        0.448695,
+        0.3775,
+        0.589498
+      ],
+      "class_name": "product",
+      "sku": "SPRITE",
+      "cropped": null
+    }
+  ]
+}

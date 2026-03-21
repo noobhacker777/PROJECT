@@ -1,0 +1,58 @@
+{
+  "image_name": "IMG_0135_2.JPG",
+  "image_stem": "IMG_0135_2",
+  "image_width": 4032,
+  "image_height": 3024,
+  "timestamp": "2026-03-18T10:04:28.940Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.2825,
+        0.475874,
+        0.4875,
+        0.232945
+      ],
+      "class_name": "product",
+      "sku": "COLGATE STRONG TEETH",
+      "cropped": "openclip_dataset/COLGATE STRONG TEETH/IMG_0135_2_box0.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.70875,
+        0.700499,
+        0.4,
+        0.229617
+      ],
+      "class_name": "product",
+      "sku": "COLGATE STRONG TEETH",
+      "cropped": null
+    },
+    {
+      "bbox": [
+        0,
+        0.74125,
+        0.482529,
+        0.43,
+        0.219634
+      ],
+      "class_name": "product",
+      "sku": "COLGATE STRONG TEETH",
+      "cropped": null
+    },
+    {
+      "bbox": [
+        0,
+        0.285,
+        0.697171,
+        0.4475,
+        0.183028
+      ],
+      "class_name": "product",
+      "sku": "COLGATE STRONG TEETH",
+      "cropped": null
+    }
+  ]
+}

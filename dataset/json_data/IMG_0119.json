@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0119.JPG",
+  "image_stem": "IMG_0119",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T09:39:07.740Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.48125,
+        0.552889,
+        0.7,
+        0.730302
+      ],
+      "class_name": "product",
+      "sku": "CADBUIRY OREO MEGA FAMILY 7 PACK",
+      "cropped": null
+    }
+  ]
+}

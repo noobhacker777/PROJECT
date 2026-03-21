@@ -3,44 +3,44 @@
   "image_stem": "IMG_6810",
   "image_width": 4284,
   "image_height": 5712,
-  "timestamp": "2026-03-13T11:02:36.398Z",
+  "timestamp": "2026-03-13T09:01:41.684Z",
   "class_name": "product",
   "boxes": [
     {
       "bbox": [
         0,
-        0.795417,
-        0.390045,
-        0.3175,
-        0.612107
+        0.48,
+        0.414902,
+        0.2825,
+        0.653329
       ],
       "class_name": "product",
-      "sku": "SPRINGLES W",
-      "cropped": "openclip_dataset/SPRINGLES W/IMG_6810_box0_abm9xr.jpg"
+      "sku": "PRINGLES CREAM N ONION",
+      "cropped": "openclip_dataset/PRINGLES CREAM N ONION/IMG_6810_box0.jpg"
     },
     {
       "bbox": [
         0,
-        0.181667,
-        0.406004,
-        0.35,
-        0.640271
+        0.20375,
+        0.391434,
+        0.31,
+        0.730302
       ],
       "class_name": "product",
-      "sku": "SPRINGLES R",
-      "cropped": "openclip_dataset/SPRINGLES R/IMG_6810_box1_rszzt9.jpg"
+      "sku": "PRINGLES ORIGINAL",
+      "cropped": "openclip_dataset/PRINGLES ORIGINAL/IMG_6810_box1_0maroj.jpg"
     },
     {
       "bbox": [
         0,
-        0.490417,
-        0.402249,
-        0.2675,
-        0.61774
+        0.7775,
+        0.399883,
+        0.3025,
+        0.698387
       ],
       "class_name": "product",
-      "sku": "SPRINGLES G",
-      "cropped": "openclip_dataset/SPRINGLES G/IMG_6810_box2_yebvvh.jpg"
+      "sku": "PRINGLES PIZZA FLAVOUR",
+      "cropped": "openclip_dataset/PRINGLES PIZZA FLAVOUR/IMG_6810_box2.jpg"
     }
   ]
 }

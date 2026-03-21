@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_4987.JPG",
+  "image_stem": "IMG_4987",
+  "image_width": 4032,
+  "image_height": 3024,
+  "timestamp": "2026-03-18T12:32:31.952Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.50625,
+        0.494176,
+        0.695,
+        0.675541
+      ],
+      "class_name": "product",
+      "sku": "FEVICOL GLUE DROPS",
+      "cropped": null
+    }
+  ]
+}

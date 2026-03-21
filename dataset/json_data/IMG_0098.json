@@ -1,0 +1,34 @@
+{
+  "image_name": "IMG_0098.JPG",
+  "image_stem": "IMG_0098",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T09:13:53.748Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.525,
+        0.682429,
+        0.9175,
+        0.362335
+      ],
+      "class_name": "product",
+      "sku": "CADBURY DAIRY MILK SILK OREO",
+      "cropped": "openclip_dataset/CADBURY DAIRY MILK SILK OREO/IMG_0098_box0.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.5775,
+        0.404576,
+        0.7525,
+        0.212144
+      ],
+      "class_name": "product",
+      "sku": "DAIRY MILK SILK OREO",
+      "cropped": null
+    }
+  ]
+}

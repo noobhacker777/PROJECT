@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5116.JPG",
+  "image_stem": "IMG_5116",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T12:59:52.479Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.62125,
+        0.628923,
+        0.42,
+        0.619537
+      ],
+      "class_name": "product",
+      "sku": "FOOD COAST TOMATO KETCHUP",
+      "cropped": null
+    }
+  ]
+}

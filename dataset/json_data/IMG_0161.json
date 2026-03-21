@@ -1,0 +1,46 @@
+{
+  "image_name": "IMG_0161.JPG",
+  "image_stem": "IMG_0161",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T10:31:03.204Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.4625,
+        0.197125,
+        0.7875,
+        0.352948
+      ],
+      "class_name": "product",
+      "sku": "KURKURE CHILLI CHATKA",
+      "cropped": null
+    },
+    {
+      "bbox": [
+        0,
+        0.4525,
+        0.535993,
+        0.6825,
+        0.354825
+      ],
+      "class_name": "product",
+      "sku": "KURKURE GREEN CHUTNEY STYLE",
+      "cropped": null
+    },
+    {
+      "bbox": [
+        0,
+        0.40875,
+        0.8467,
+        0.725,
+        0.304136
+      ],
+      "class_name": "product",
+      "sku": "KURKURE MASALA MUNCH",
+      "cropped": null
+    }
+  ]
+}

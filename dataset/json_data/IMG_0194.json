@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0194.JPG",
+  "image_stem": "IMG_0194",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T11:45:25.762Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.49125,
+        0.397067,
+        0.49,
+        0.587621
+      ],
+      "class_name": "product",
+      "sku": "CHINGS SCHEZWAN CHUTNEY 590GM",
+      "cropped": null
+    }
+  ]
+}

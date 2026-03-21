@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5156.JPG",
+  "image_stem": "IMG_5156",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T12:24:58.561Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.43875,
+        0.611088,
+        0.515,
+        0.51628
+      ],
+      "class_name": "product",
+      "sku": "BHAGWATI SUPER DHANA DAL",
+      "cropped": null
+    }
+  ]
+}

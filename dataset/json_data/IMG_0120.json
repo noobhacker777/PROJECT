@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0120.JPG",
+  "image_stem": "IMG_0120",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T09:40:51.172Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.415,
+        0.505016,
+        0.7975,
+        0.829803
+      ],
+      "class_name": "product",
+      "sku": "CADBURY OREO ORIGINAL 7 PACK",
+      "cropped": null
+    }
+  ]
+}

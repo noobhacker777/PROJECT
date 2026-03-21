@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5163_1.JPG",
+  "image_stem": "IMG_5163_1",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T12:19:46.640Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.7275,
+        0.704019,
+        0.1575,
+        0.56697
+      ],
+      "class_name": "product",
+      "sku": "CHOKI CHOKI",
+      "cropped": null
+    }
+  ]
+}

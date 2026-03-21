@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0078.JPG",
+  "image_stem": "IMG_0078",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T08:56:09.908Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.47875,
+        0.510648,
+        0.455,
+        0.822294
+      ],
+      "class_name": "product",
+      "sku": "CADBURY DAIRY MILK SILK YOU MELT MY",
+      "cropped": null
+    }
+  ]
+}

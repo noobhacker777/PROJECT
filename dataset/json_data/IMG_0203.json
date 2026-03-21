@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0203.JPG",
+  "image_stem": "IMG_0203",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T11:57:15.120Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.57625,
+        0.41584,
+        0.74,
+        0.726547
+      ],
+      "class_name": "product",
+      "sku": "KISSAN FRESH TOMATO KETCHUP 900 GM",
+      "cropped": null
+    }
+  ]
+}

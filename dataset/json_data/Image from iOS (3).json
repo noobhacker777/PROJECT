@@ -1,0 +1,22 @@
+{
+  "image_name": "Image from iOS (3).jpg",
+  "image_stem": "Image from iOS (3)",
+  "image_width": 957,
+  "image_height": 3293,
+  "timestamp": "2026-03-13T09:31:08.229Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.47875,
+        0.493719,
+        0.6825,
+        0.815646
+      ],
+      "class_name": "product",
+      "sku": "KITAKT 50 RUPEES",
+      "cropped": null
+    }
+  ]
+}

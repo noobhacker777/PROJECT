@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5095.JPG",
+  "image_stem": "IMG_5095",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T12:26:40.449Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.3975,
+        0.552889,
+        0.3475,
+        0.527545
+      ],
+      "class_name": "product",
+      "sku": "DOUBLEMINT CHEWY MINTS",
+      "cropped": null
+    }
+  ]
+}

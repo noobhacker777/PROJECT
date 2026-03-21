@@ -1,0 +1,58 @@
+{
+  "image_name": "IMG_0094.JPG",
+  "image_stem": "IMG_0094",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T09:10:46.174Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.48625,
+        0.227163,
+        0.64,
+        0.232796
+      ],
+      "class_name": "product",
+      "sku": "DAIRY MILK SILK BUBBLY MINI",
+      "cropped": "openclip_dataset/DAIRY MILK SILK BUBBLY MINI/IMG_0094_box0_ii621v.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.53,
+        0.448695,
+        0.7125,
+        0.210267
+      ],
+      "class_name": "product",
+      "sku": "DAIRY MILK SILK MINI",
+      "cropped": "openclip_dataset/DAIRY MILK SILK MINI/IMG_0094_box1_5mjck0.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.46375,
+        0.651452,
+        0.765,
+        0.240305
+      ],
+      "class_name": "product",
+      "sku": "DAIRY MILK SILK OREO",
+      "cropped": "openclip_dataset/DAIRY MILK SILK OREO/IMG_0094_box2.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.49625,
+        0.880493,
+        0.72,
+        0.221531
+      ],
+      "class_name": "product",
+      "sku": "DAIRY MILK SILK FRUIT N NUT",
+      "cropped": null
+    }
+  ]
+}

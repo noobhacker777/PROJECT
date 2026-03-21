@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0052.JPG",
+  "image_stem": "IMG_0052",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T08:32:01.090Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.4275,
+        0.520035,
+        0.3875,
+        0.796011
+      ],
+      "class_name": "product",
+      "sku": "CAMPA BOTTLE",
+      "cropped": null
+    }
+  ]
+}

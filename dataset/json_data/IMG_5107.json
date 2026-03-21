@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5107.JPG",
+  "image_stem": "IMG_5107",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T12:18:08.927Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.5875,
+        0.61672,
+        0.4525,
+        0.388618
+      ],
+      "class_name": "product",
+      "sku": "VEEBA CHILLI FLAKES",
+      "cropped": null
+    }
+  ]
+}

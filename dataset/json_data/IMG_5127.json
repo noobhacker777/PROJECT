@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_5127.JPG",
+  "image_stem": "IMG_5127",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T12:45:49.758Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.62,
+        0.594192,
+        0.3075,
+        0.737812
+      ],
+      "class_name": "product",
+      "sku": "ALPENLIEBE STRAWBERRY LOLIPOP",
+      "cropped": null
+    }
+  ]
+}

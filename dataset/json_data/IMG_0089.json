@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0089.JPG",
+  "image_stem": "IMG_0089",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T09:05:15.069Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.4875,
+        0.505955,
+        0.4525,
+        0.981872
+      ],
+      "class_name": "product",
+      "sku": "DAIRY MILK SILK OREO",
+      "cropped": null
+    }
+  ]
+}

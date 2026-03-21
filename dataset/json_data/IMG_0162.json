@@ -1,0 +1,22 @@
+{
+  "image_name": "IMG_0162.JPG",
+  "image_stem": "IMG_0162",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T10:32:35.083Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.5275,
+        0.606395,
+        0.7575,
+        0.777237
+      ],
+      "class_name": "product",
+      "sku": "BINGO TEDHE MEDHE MASALA TADKA",
+      "cropped": null
+    }
+  ]
+}

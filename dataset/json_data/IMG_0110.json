@@ -1,0 +1,46 @@
+{
+  "image_name": "IMG_0110.JPG",
+  "image_stem": "IMG_0110",
+  "image_width": 3024,
+  "image_height": 4032,
+  "timestamp": "2026-03-18T09:25:56.702Z",
+  "class_name": "product",
+  "boxes": [
+    {
+      "bbox": [
+        0,
+        0.4425,
+        0.397067,
+        0.5525,
+        0.148313
+      ],
+      "class_name": "product",
+      "sku": "CADBURY BOURNVILLE FRUIT N NUT 50% DARK",
+      "cropped": "openclip_dataset/CADBURY BOURNVILLE FRUIT N NUT 50% DARK/IMG_0110_box0_z0dv4j.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.46125,
+        0.558522,
+        0.555,
+        0.144559
+      ],
+      "class_name": "product",
+      "sku": "CADBURY BOURNVILLE CLASSIC 50% DARK",
+      "cropped": "openclip_dataset/CADBURY BOURNVILLE CLASSIC 50% DARK/IMG_0110_box1.jpg"
+    },
+    {
+      "bbox": [
+        0,
+        0.4625,
+        0.72467,
+        0.5475,
+        0.161455
+      ],
+      "class_name": "product",
+      "sku": "CADBURY BOURNVILLE CRANBERRY 50% DARK",
+      "cropped": null
+    }
+  ]
+}
