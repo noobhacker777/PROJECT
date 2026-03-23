@@ -1,4 +1,4 @@
-
+import _pickle
 import contextlib
 import pickle
 import re
@@ -87,8 +87,8 @@ from hyperimagedetect.utils.torch_utils import (
     time_sync,
 )
 
-class BaseModel(torch.nn.Module):
 
+class BaseModel(torch.nn.Module):
     def forward(self, x, *args, **kwargs):
         if isinstance(x, dict):
             return self.loss(x, *args, **kwargs)
@@ -105,7 +105,11 @@ class BaseModel(torch.nn.Module):
         max_idx = max(embed)
         for m in self.model:
             if m.f != -1:
-                x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]
+                x = (
+                    y[m.f]
+                    if isinstance(m.f, int)
+                    else [x if j == -1 else y[j] for j in m.f]
+                )
             if profile:
                 self._profile_one_layer(m, x, dt)
             x = m(x)
@@ -113,7 +117,11 @@ class BaseModel(torch.nn.Module):
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
             if m.i in embed:
-                embeddings.append(torch.nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))
+                embeddings.append(
+                    torch.nn.functional.adaptive_avg_pool2d(x, (1, 1))
+                    .squeeze(-1)
+                    .squeeze(-1)
+                )
                 if m.i == max_idx:
                     return torch.unbind(torch.cat(embeddings, 1), dim=0)
         return x
@@ -132,7 +140,11 @@ class BaseModel(torch.nn.Module):
             thop = None
 
         c = m == self.model[-1] and isinstance(x, list)
-        flops = thop.profile(m, inputs=[x.copy() if c else x], verbose=False)[0] / 1e9 * 2 if thop else 0
+        flops = (
+            thop.profile(m, inputs=[x.copy() if c else x], verbose=False)[0] / 1e9 * 2
+            if thop
+            else 0
+        )
         t = time_sync()
         for _ in range(10):
             m(x.copy() if c else x)
@@ -175,9 +187,7 @@ class BaseModel(torch.nn.Module):
     def _apply(self, fn):
         self = super()._apply(fn)
         m = self.model[-1]
-        if isinstance(
-            m, Detect
-        ):
+        if isinstance(m, Detect):
             m.stride = fn(m.stride)
             m.anchors = fn(m.anchors)
             m.strides = fn(m.strides)
@@ -200,7 +210,9 @@ class BaseModel(torch.nn.Module):
                 state_dict[first_conv][:c1, :c2] = csd[first_conv][:c1, :c2]
                 len_updated_csd += 1
         if verbose:
-            LOGGER.info(f"Transferred {len_updated_csd}/{len(self.model.state_dict())} items from pretrained weights")
+            LOGGER.info(
+                f"Transferred {len_updated_csd}/{len(self.model.state_dict())} items from pretrained weights"
+            )
 
     def loss(self, batch, preds=None):
         if getattr(self, "criterion", None) is None:
@@ -211,10 +223,12 @@ class BaseModel(torch.nn.Module):
         return self.criterion(preds, batch)
 
     def init_criterion(self):
-        raise NotImplementedError("compute_loss() needs to be implemented by task heads")
+        raise NotImplementedError(
+            "compute_loss() needs to be implemented by task heads"
+        )
+
 
 class DetectionModel(BaseModel):
-
     def __init__(self, cfg="holo11n.yaml", ch=3, nc=None, verbose=True):
         super().__init__()
         self.yaml = cfg if isinstance(cfg, dict) else yaml_model_load(cfg)
@@ -238,11 +252,17 @@ class DetectionModel(BaseModel):
             def _forward(x):
                 if self.end2end:
                     return self.forward(x)["one2many"]
-                return self.forward(x)[0] if isinstance(m, (Segment, Pose, OBB)) else self.forward(x)
+                return (
+                    self.forward(x)[0]
+                    if isinstance(m, (Segment, Pose, OBB))
+                    else self.forward(x)
+                )
 
             self.model.eval()
             m.training = True
-            m.stride = torch.tensor([s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))])
+            m.stride = torch.tensor(
+                [s / x.shape[-2] for x in _forward(torch.zeros(1, ch, s, s))]
+            )
             self.stride = m.stride
             self.model.train()
             m.bias_init()
@@ -254,8 +274,13 @@ class DetectionModel(BaseModel):
             LOGGER.info("")
 
     def _predict_augment(self, x):
-        if getattr(self, "end2end", False) or self.__class__.__name__ != "DetectionModel":
-            LOGGER.warning("Model does not support 'augment=True', reverting to single-scale prediction.")
+        if (
+            getattr(self, "end2end", False)
+            or self.__class__.__name__ != "DetectionModel"
+        ):
+            LOGGER.warning(
+                "Model does not support 'augment=True', reverting to single-scale prediction."
+            )
             return self._predict_once(x)
         img_size = x.shape[-2:]
         s = [1, 0.83, 0.67]
@@ -290,39 +315,52 @@ class DetectionModel(BaseModel):
         return y
 
     def init_criterion(self):
-        return E2EDetectLoss(self) if getattr(self, "end2end", False) else v8DetectionLoss(self)
+        return (
+            E2EDetectLoss(self)
+            if getattr(self, "end2end", False)
+            else v8DetectionLoss(self)
+        )
+
 
 class OBBModel(DetectionModel):
-
     def __init__(self, cfg="holo11n-obb.yaml", ch=3, nc=None, verbose=True):
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
 
     def init_criterion(self):
         return v8OBBLoss(self)
 
-class SegmentationModel(DetectionModel):
 
+class SegmentationModel(DetectionModel):
     def __init__(self, cfg="holo11n-seg.yaml", ch=3, nc=None, verbose=True):
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
 
     def init_criterion(self):
         return v8SegmentationLoss(self)
 
-class PoseModel(DetectionModel):
 
-    def __init__(self, cfg="holo11n-pose.yaml", ch=3, nc=None, data_kpt_shape=(None, None), verbose=True):
+class PoseModel(DetectionModel):
+    def __init__(
+        self,
+        cfg="holo11n-pose.yaml",
+        ch=3,
+        nc=None,
+        data_kpt_shape=(None, None),
+        verbose=True,
+    ):
         if not isinstance(cfg, dict):
             cfg = yaml_model_load(cfg)
         if any(data_kpt_shape) and list(data_kpt_shape) != list(cfg["kpt_shape"]):
-            LOGGER.info(f"Overriding model.yaml kpt_shape={cfg['kpt_shape']} with kpt_shape={data_kpt_shape}")
+            LOGGER.info(
+                f"Overriding model.yaml kpt_shape={cfg['kpt_shape']} with kpt_shape={data_kpt_shape}"
+            )
             cfg["kpt_shape"] = data_kpt_shape
         super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
 
     def init_criterion(self):
         return v8PoseLoss(self)
 
-class ClassificationModel(BaseModel):
 
+class ClassificationModel(BaseModel):
     def __init__(self, cfg="holo11n-cls.yaml", ch=3, nc=None, verbose=True):
         super().__init__()
         self._from_yaml(cfg, ch, nc, verbose)
@@ -335,14 +373,18 @@ class ClassificationModel(BaseModel):
             LOGGER.info(f"Overriding model.yaml nc={self.yaml['nc']} with nc={nc}")
             self.yaml["nc"] = nc
         elif not nc and not self.yaml.get("nc", None):
-            raise ValueError("nc not specified. Must specify nc in model.yaml or function arguments.")
+            raise ValueError(
+                "nc not specified. Must specify nc in model.yaml or function arguments."
+            )
         self.model, self.save = parse_model(deepcopy(self.yaml), ch=ch, verbose=verbose)
         self.stride = torch.Tensor([1])
         self.names = {i: f"{i}" for i in range(self.yaml["nc"])}
 
     @staticmethod
     def reshape_outputs(model, nc):
-        name, m = list((model.model if hasattr(model, "model") else model).named_children())[-1]
+        name, m = list(
+            (model.model if hasattr(model, "model") else model).named_children()
+        )[-1]
         if isinstance(m, Classify):
             if m.linear.out_features != nc:
                 m.linear = torch.nn.Linear(m.linear.in_features, nc)
@@ -359,14 +401,18 @@ class ClassificationModel(BaseModel):
                 i = len(types) - 1 - types[::-1].index(torch.nn.Conv2d)
                 if m[i].out_channels != nc:
                     m[i] = torch.nn.Conv2d(
-                        m[i].in_channels, nc, m[i].kernel_size, m[i].stride, bias=m[i].bias is not None
+                        m[i].in_channels,
+                        nc,
+                        m[i].kernel_size,
+                        m[i].stride,
+                        bias=m[i].bias is not None,
                     )
 
     def init_criterion(self):
         return v8ClassificationLoss()
 
-class Ensemble(torch.nn.ModuleList):
 
+class Ensemble(torch.nn.ModuleList):
     def __init__(self):
         super().__init__()
 
@@ -374,6 +420,7 @@ class Ensemble(torch.nn.ModuleList):
         y = [module(x, augment, profile, visualize)[0] for module in self]
         y = torch.cat(y, 2)
         return y, None
+
 
 @contextlib.contextmanager
 def temporary_modules(modules=None, attributes=None):
@@ -390,13 +437,16 @@ def temporary_modules(modules=None, attributes=None):
                 sys.modules[old] = import_module(new)
             except ModuleNotFoundError:
                 import types
+
                 sys.modules[old] = types.ModuleType(old)
 
         for old, new in attributes.items():
             old_module, old_attr = old.rsplit(".", 1)
             new_module, new_attr = new.rsplit(".", 1)
             try:
-                old_mod = import_module(old_module) if old_module in sys.modules else None
+                old_mod = (
+                    import_module(old_module) if old_module in sys.modules else None
+                )
                 new_mod = import_module(new_module)
                 if old_mod is not None:
                     setattr(old_mod, old_attr, getattr(new_mod, new_attr))
@@ -409,8 +459,8 @@ def temporary_modules(modules=None, attributes=None):
             if old in sys.modules:
                 del sys.modules[old]
 
-class SafeClass:
 
+class SafeClass:
     def __init__(self, *args, **kwargs):
         pass
 
@@ -432,8 +482,8 @@ class SafeClass:
     def __bool__(self):
         return False
 
-class SafeUnpickler(pickle.Unpickler):
 
+class SafeUnpickler(pickle.Unpickler):
     def __init__(self, *args, module_mapping=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.module_mapping = module_mapping or {}
@@ -454,7 +504,9 @@ class SafeUnpickler(pickle.Unpickler):
         )
 
         try:
-            if module in safe_modules or module.startswith(("torch.", "numpy.", "hyperimagedetect.")):
+            if module in safe_modules or module.startswith(
+                ("torch.", "numpy.", "hyperimagedetect.")
+            ):
                 return super().find_class(module, name)
                 # ...existing code...
                 from importlib import import_module
@@ -474,16 +526,66 @@ def torch_safe_load(weight, safe_only=False):
     file = Path(weight)
 
     if not file.exists():
-        raise FileNotFoundError(f"❌ OFFLINE MODE: Model file not found: {weight}\nUse local files only.")
+        raise FileNotFoundError(
+            f"❌ OFFLINE MODE: Model file not found: {weight}\nUse local files only."
+        )
+
+    class PermissiveUnpickler(SafeUnpickler):
+        def find_class(self, module, name):
+            try:
+                return super().find_class(module, name)
+            except (ModuleNotFoundError, AttributeError):
+                pass
+            try:
+                from importlib import import_module
+
+                if module not in sys.modules:
+                    import_module(module)
+                return super().find_class(module, name)
+            except (ModuleNotFoundError, AttributeError):
+                pass
+            return type(
+                f"Safe_{module}.{name}",
+                (),
+                {"__new__": lambda cls, *args, **kwargs: object().__new__(cls)},
+            )
 
     try:
         safe_pickle = types.ModuleType("safe_pickle")
-        safe_pickle.Unpickler = SafeUnpickler
-        safe_pickle.load = lambda file_obj: SafeUnpickler(file_obj).load()
+        safe_pickle.Unpickler = PermissiveUnpickler
+        safe_pickle.load = lambda file_obj: PermissiveUnpickler(file_obj).load()
 
         with open(file, "rb") as f:
             ckpt = torch_load(f, pickle_module=safe_pickle)
 
+    except (_pickle.UnpicklingError, TypeError) as e:
+        if "NEWOBJ class argument must be a type" in str(e) or isinstance(
+            e, _pickle.UnpicklingError
+        ):
+            LOGGER.warning(
+                f"Safe unpickling failed for {weight}, trying with ultralytics->hyperimagedetect mapping..."
+            )
+
+            class UltralyticsMapper(pickle.Unpickler):
+                ULTRA_ALIASES = {"ultralytics": "hyperimagedetect"}
+
+                def find_class(self, module, name):
+                    for old, new in self.ULTRA_ALIASES.items():
+                        if module == old or module.startswith(old + "."):
+                            mapped = new + module[len(old) :]
+                            try:
+                                mod = __import__(mapped, fromlist=[name])
+                                return getattr(mod, name)
+                            except (ImportError, AttributeError):
+                                break
+                    return super().find_class(module, name)
+
+            mapper_pickle = types.ModuleType("mapper_pickle")
+            mapper_pickle.Unpickler = UltralyticsMapper
+            mapper_pickle.load = lambda file_obj: UltralyticsMapper(file_obj).load()
+
+            with open(file, "rb") as f:
+                ckpt = torch_load(f, pickle_module=mapper_pickle)
     except ModuleNotFoundError as e:
         if e.name == "models":
             raise TypeError(
@@ -519,45 +621,58 @@ def torch_safe_load(weight, safe_only=False):
 
     return ckpt, file
 
+
 def _infer_model_scale_from_checkpoint(state_dict, task="detect"):
     """Infer the model scale (n, s, m, l, x) from checkpoint state_dict shapes."""
     if not state_dict:
         return "m"  # Default to medium
-    
+
     # Look for distinguishing features in layer 23 (detection head)
     # Different scales have different channel counts
     sample_keys = [
         "model.23.cv3.2.1.1.conv.weight",  # Shape will be [channels, channels, 1, 1]
         "model.24.cv2.2.1.1.conv.weight",  # Backup key
     ]
-    
+
     for key in sample_keys:
         if key in state_dict:
             shape = state_dict[key].shape
             # shape[0] is output channels, shape[1] is input channels
             output_ch = shape[0]
-            
+
             # Map channel counts to model scales based on holo11.yaml scales
             # n: [0.50, 0.25] -> base*0.25 = 64*0.25 = 16, 256*0.25 = 64
             # s: [0.50, 0.50] -> base*0.50 = 64*0.50 = 32, 256*0.50 = 128
             # m: [0.50, 1.00] -> base*1.00 = 64, 256*1.00 = 256
             # l: [1.00, 1.00] -> base*1.00 = 64, 256*1.00 = 256
             # x: [1.00, 1.50] -> base*1.50 = 96, 256*1.50 = 384
-            
+
             scale_mapping = {
-                16: "n", 32: "n", 64: "n",    # nano range
-                64: "s", 80: "s", 128: "s",   # small range  
-                128: "m", 160: "m", 192: "m", 256: "m",  # medium range
-                256: "l", 320: "l",           # large range
-                384: "x", 400: "x", 512: "x", # xlarge range
+                16: "n",
+                32: "n",
+                64: "n",  # nano range
+                64: "s",
+                80: "s",
+                128: "s",  # small range
+                128: "m",
+                160: "m",
+                192: "m",
+                256: "m",  # medium range
+                256: "l",
+                320: "l",  # large range
+                384: "x",
+                400: "x",
+                512: "x",  # xlarge range
             }
-            
+
             # Find exact or closest match
             if output_ch in scale_mapping:
                 scale = scale_mapping[output_ch]
-                LOGGER.info(f"Inferred model scale '{scale}' from checkpoint (output channels: {output_ch})")
+                LOGGER.info(
+                    f"Inferred model scale '{scale}' from checkpoint (output channels: {output_ch})"
+                )
                 return scale
-            
+
             # Find closest match
             closest_scale = "m"
             closest_diff = float("inf")
@@ -566,92 +681,101 @@ def _infer_model_scale_from_checkpoint(state_dict, task="detect"):
                 if diff < closest_diff:
                     closest_diff = diff
                     closest_scale = scale
-            
-            LOGGER.info(f"Inferred model scale '{closest_scale}' from checkpoint (output channels: {output_ch}, nearest: {closest_diff})")
+
+            LOGGER.info(
+                f"Inferred model scale '{closest_scale}' from checkpoint (output channels: {output_ch}, nearest: {closest_diff})"
+            )
             return closest_scale
-    
+
     LOGGER.debug("Could not infer model scale from checkpoint, using default 'm'")
     return "m"
 
-def _try_load_with_scale(model_class, cfg_file, nc, state_dict, task="detect", inferred_scale="m"):
+
+def _try_load_with_scale(
+    model_class, cfg_file, nc, state_dict, task="detect", inferred_scale="m"
+):
     """Try loading state_dict with different model scales until shapes match."""
     from hyperimagedetect.utils import ROOT, YAML
-    
+
     # Load the base yaml
     if isinstance(cfg_file, str):
         cfg_file = Path(cfg_file)
-    
+
     if not cfg_file.exists():
         raise FileNotFoundError(f"Model config not found: {cfg_file}")
-    
+
     # Load yaml
     yaml_dict = YAML.load(str(cfg_file))
-    
+
     scales = yaml_dict.get("scales", {})
     if not scales:
         # No scales defined, just create model with base yaml
         LOGGER.warning("No model scales defined in yaml, using base configuration")
         model = model_class(cfg=str(cfg_file), nc=nc, verbose=False)
         return model
-    
+
     # Try scales in order: inferred first, then largest to smallest
     # (larger models are more likely to fit small weights, not vice versa)
     scale_order = [inferred_scale]
     for scale in ["x", "l", "m", "s", "n"]:
         if scale not in scale_order and scale in scales:
             scale_order.append(scale)
-    
+
     errors = {}
     best_model = None
     best_match_count = -1
     best_scale_used = None
-    
+
     for scale in scale_order:
         if scale not in scales:
             continue
-            
+
         try:
             # Create model with this scale
             scale_yaml = yaml_dict.copy()
             scale_yaml["scale"] = scale
-            
+
             model = model_class(cfg=scale_yaml, nc=nc, verbose=False)
-            
+
             # Count matching parameter shapes
             model_state = model.state_dict()
             matches = 0
             mismatches = 0
-            
+
             for key in state_dict.keys():
                 if key in model_state:
                     if state_dict[key].shape == model_state[key].shape:
                         matches += 1
                     else:
                         mismatches += 1
-            
+
             total = matches + mismatches
             if total == 0:
                 continue
-                
+
             match_ratio = matches / total
-            LOGGER.debug(f"Scale '{scale}': {matches}/{total} params match ({match_ratio:.1%})")
-            
+            LOGGER.debug(
+                f"Scale '{scale}': {matches}/{total} params match ({match_ratio:.1%})"
+            )
+
             # If this is the best match so far, save it
             if matches > best_match_count:
                 best_match_count = matches
                 best_model = model
                 best_scale_used = scale
-                
+
                 # If we have perfect/near-perfect match (>95%), stop searching
                 if match_ratio > 0.95:
-                    LOGGER.info(f"Excellent match found with scale '{scale}' ({match_ratio:.1%})")
+                    LOGGER.info(
+                        f"Excellent match found with scale '{scale}' ({match_ratio:.1%})"
+                    )
                     break
-                    
+
         except Exception as e:
             errors[scale] = str(e)
             LOGGER.debug(f"Failed to load scale '{scale}': {e}")
             continue
-    
+
     if best_model is None:
         available_scales = [s for s in scale_order if s in scales]
         raise RuntimeError(
@@ -659,13 +783,21 @@ def _try_load_with_scale(model_class, cfg_file, nc, state_dict, task="detect", i
             f"Tried scales: {', '.join(available_scales)}. "
             f"Errors: {errors}"
         )
-    
-    match_ratio = best_match_count / (best_match_count + sum(
-        1 for key in state_dict.keys() 
-        if key in best_model.state_dict() and state_dict[key].shape != best_model.state_dict()[key].shape
-    ))
-    LOGGER.info(f"Using model scale '{best_scale_used}' with {best_match_count} matching parameters ({match_ratio:.1%})")
+
+    match_ratio = best_match_count / (
+        best_match_count
+        + sum(
+            1
+            for key in state_dict.keys()
+            if key in best_model.state_dict()
+            and state_dict[key].shape != best_model.state_dict()[key].shape
+        )
+    )
+    LOGGER.info(
+        f"Using model scale '{best_scale_used}' with {best_match_count} matching parameters ({match_ratio:.1%})"
+    )
     return best_model
+
 
 def load_checkpoint(weight, device=None, inplace=True, fuse=False):
     ckpt, weight = torch_safe_load(weight)
@@ -675,14 +807,16 @@ def load_checkpoint(weight, device=None, inplace=True, fuse=False):
     if not ckpt.get("train_args"):
         meta = ckpt.get("meta", {})
         if meta:
-            args.update({
-                "task": meta.get("task", args.get("task", "detect")),
-                "nc": meta.get("nc", args.get("nc", 80)),
-                "imgsz": meta.get("imgsz", args.get("imgsz", 640)),
-            })
-    
+            args.update(
+                {
+                    "task": meta.get("task", args.get("task", "detect")),
+                    "nc": meta.get("nc", args.get("nc", 80)),
+                    "imgsz": meta.get("imgsz", args.get("imgsz", 640)),
+                }
+            )
+
     ema_or_model = ckpt.get("ema") or ckpt["model"]
-    
+
     # Handle case where checkpoint contains state_dict instead of model object
     if isinstance(ema_or_model, dict):
         LOGGER.warning(
@@ -692,7 +826,7 @@ def load_checkpoint(weight, device=None, inplace=True, fuse=False):
         # Extract architecture information from args/metadata
         task = args.get("task", "detect")
         nc = args.get("nc", 80)
-        
+
         # Select appropriate model class based on task
         model_map = {
             "detect": DetectionModel,
@@ -707,7 +841,7 @@ def load_checkpoint(weight, device=None, inplace=True, fuse=False):
                 f"Unknown task '{task}'. Cannot reconstruct model. "
                 f"Supported tasks: {', '.join(model_map.keys())}"
             )
-        
+
         try:
             # Try to create model from args/yaml if available
             cfg = args.get("cfg") or args.get("model")
@@ -717,38 +851,43 @@ def load_checkpoint(weight, device=None, inplace=True, fuse=False):
             else:
                 # Try to infer model scale from checkpoint weights
                 inferred_scale = _infer_model_scale_from_checkpoint(ema_or_model, task)
-                
+
                 # Try different model scales to find matching architecture
                 from hyperimagedetect.utils import ROOT
+
                 cfg_file = ROOT / "cfg" / "models" / "11" / "holo11.yaml"
                 if not cfg_file.exists():
                     raise FileNotFoundError(f"Model config not found: {cfg_file}")
-                
-                LOGGER.info(f"Checkpoint config not found, attempting to match architecture with scale '{inferred_scale}'...")
+
+                LOGGER.info(
+                    f"Checkpoint config not found, attempting to match architecture with scale '{inferred_scale}'..."
+                )
                 model = _try_load_with_scale(
-                    model_class, 
-                    cfg_file, 
-                    nc, 
+                    model_class,
+                    cfg_file,
+                    nc,
                     ema_or_model,
                     task=task,
-                    inferred_scale=inferred_scale
+                    inferred_scale=inferred_scale,
                 )
-            
+
             # Load the state_dict into the reconstructed model
             LOGGER.info(f"Loading state_dict into {task} model with {nc} classes")
             incompatible_keys = model.load_state_dict(ema_or_model, strict=False)
-            
+
             # Log any significant mismatches
             if incompatible_keys.missing_keys:
                 missing_count = len(incompatible_keys.missing_keys)
                 if missing_count > 10:
-                    LOGGER.warning(f"Model has {missing_count} missing keys from checkpoint (may indicate model architecture mismatch)")
-            
+                    LOGGER.warning(
+                        f"Model has {missing_count} missing keys from checkpoint (may indicate model architecture mismatch)"
+                    )
+
             if incompatible_keys.unexpected_keys:
                 unexpected_count = len(incompatible_keys.unexpected_keys)
                 if unexpected_count > 10:
                     LOGGER.debug(f"Checkpoint has {unexpected_count} unexpected keys")
-            
+
             model = model.float()
         except Exception as e:
             raise RuntimeError(
@@ -766,15 +905,20 @@ def load_checkpoint(weight, device=None, inplace=True, fuse=False):
     if not hasattr(model, "stride"):
         model.stride = torch.tensor([32.0])
 
-    model = (model.fuse() if fuse and hasattr(model, "fuse") else model).eval().to(device)
+    model = (
+        (model.fuse() if fuse and hasattr(model, "fuse") else model).eval().to(device)
+    )
 
     for m in model.modules():
         if hasattr(m, "inplace"):
             m.inplace = inplace
-        elif isinstance(m, torch.nn.Upsample) and not hasattr(m, "recompute_scale_factor"):
+        elif isinstance(m, torch.nn.Upsample) and not hasattr(
+            m, "recompute_scale_factor"
+        ):
             m.recompute_scale_factor = None
 
     return model, ckpt
+
 
 def parse_model(d, ch, verbose=True):
     import ast
@@ -782,7 +926,9 @@ def parse_model(d, ch, verbose=True):
     legacy = True
     max_channels = float("inf")
     nc, act, scales = (d.get(x) for x in ("nc", "activation", "scales"))
-    depth, width, kpt_shape = (d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape"))
+    depth, width, kpt_shape = (
+        d.get(x, 1.0) for x in ("depth_multiple", "width_multiple", "kpt_shape")
+    )
     scale = d.get("scale")
     if scales:
         if not scale:
@@ -796,7 +942,9 @@ def parse_model(d, ch, verbose=True):
             LOGGER.info(f"{colorstr('activation:')} {act}")
 
     if verbose:
-        LOGGER.info(f"\n{'':>3}{'from':>20}{'n':>3}{'params':>10}  {'module':<45}{'arguments':<30}")
+        LOGGER.info(
+            f"\n{'':>3}{'from':>20}{'n':>3}{'params':>10}  {'module':<45}{'arguments':<30}"
+        )
     ch = [ch]
     layers, save, c2 = [], [], ch[-1]
     base_modules = frozenset(
@@ -875,7 +1023,11 @@ def parse_model(d, ch, verbose=True):
                 c2 = make_divisible(min(c2, max_channels) * width, 8)
             if m is C2fAttn:
                 args[1] = make_divisible(min(args[1], max_channels // 2) * width, 8)
-                args[2] = int(max(round(min(args[2], max_channels // 2 // 32)) * width, 1) if args[2] > 1 else args[2])
+                args[2] = int(
+                    max(round(min(args[2], max_channels // 2 // 32)) * width, 1)
+                    if args[2] > 1
+                    else args[2]
+                )
 
             args = [c1, c2, *args[1:]]
             if m in repeat_modules:
@@ -905,9 +1057,7 @@ def parse_model(d, ch, verbose=True):
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
-        elif m in frozenset(
-            {Detect, Segment, Pose, OBB, ImagePoolingAttn}
-        ):
+        elif m in frozenset({Detect, Segment, Pose, OBB, ImagePoolingAttn}):
             args.append([ch[x] for x in f])
             if m is Segment:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
@@ -941,6 +1091,7 @@ def parse_model(d, ch, verbose=True):
         ch.append(c2)
     return torch.nn.Sequential(*layers), sorted(save)
 
+
 def yaml_model_load(path):
     path = Path(path)
 
@@ -951,11 +1102,13 @@ def yaml_model_load(path):
     d["yaml_file"] = str(path)
     return d
 
+
 def guess_model_scale(model_path):
     try:
         return re.search(r"holo(e-)?[v]?\d+([nslmx])", Path(model_path).stem).group(2)
     except AttributeError:
         return ""
+
 
 def guess_model_task(model):
 
