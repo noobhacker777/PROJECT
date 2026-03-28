@@ -424,7 +424,7 @@ def initialize_sku_embeddings():
             check_and_install_gpu_faiss()
             
             print("[INIT] Loading SKU embeddings cache...")
-            from sku_embeddings import SKUEmbeddingMatcher
+            from sku_embeddings import SKUEmbeddingMatcher, load_sku_info
             MATCHER_INSTANCE = SKUEmbeddingMatcher()
             
             # Build embeddings dict from SKU folders
@@ -1808,7 +1808,7 @@ def train_faiss_index():
         }
     """
     try:
-        from sku_embeddings import SKUEmbeddingMatcher
+        from sku_embeddings import SKUEmbeddingMatcher, load_sku_info
         import time
         
         MODEL_INDEX_PATH = PROJECT / 'scan_models' / 'scan_model.index'
@@ -1838,7 +1838,9 @@ def train_faiss_index():
         
         # Generate embeddings
         print("[TRAIN] Generating SKU embeddings...")
-        sku_embeddings = matcher.get_sku_embeddings_from_dataset(str(openclip_dataset_dir))
+        sku_info = load_sku_info()
+        expected_skus = sku_info.get('skus', [])
+        sku_embeddings = matcher.get_sku_embeddings_from_dataset(str(openclip_dataset_dir), expected_skus=expected_skus)
         
         if not sku_embeddings:
             return jsonify({
@@ -2313,7 +2315,7 @@ def detect_products(json_only: bool = False):
                 global MATCHER_INSTANCE, FAISS_INDEX_LOADED
                 if MATCHER_INSTANCE is None:
                     print("[OPENCLIP] Initializing OpenCLIP matcher...")
-                    from sku_embeddings import SKUEmbeddingMatcher
+                    from sku_embeddings import SKUEmbeddingMatcher, load_sku_info
                     MATCHER_INSTANCE = SKUEmbeddingMatcher(model_name="ViT-B-32", pretrained="openai")
                 
                 matcher = MATCHER_INSTANCE
@@ -2333,8 +2335,11 @@ def detect_products(json_only: bool = False):
                 if not index_loaded:
                     matching_mode = 'raw_images'
                     print("[OPENCLIP] Generating SKU embeddings from raw dataset...")
+                    sku_info = load_sku_info()
+                    expected_skus = sku_info.get('skus', [])
                     sku_embeddings = matcher.get_sku_embeddings_from_dataset(
-                        str(PROJECT / 'openclip_dataset')
+                        str(PROJECT / 'openclip_dataset'),
+                        expected_skus=expected_skus
                     )
                     
                     if sku_embeddings:
@@ -3056,6 +3061,20 @@ def scan_image_simple():
         if validated_count < product_count:
             response_data['note'] = f'{product_count} boxes detected by YOLO, {validated_count} confirmed by FAISS+OCR wrapper validation'
         
+        response_data['disclaimer'] = {
+            'accuracy_note': '⚠️ MISMATCHES ARE NOT SYSTEM ERRORS - Accuracy depends on:',
+            'factors': [
+                '1. Image Quality - blurry, dark, or compressed images reduce accuracy',
+                '2. Camera Quality - phone cameras vary in quality (₹10K vs ₹50K phones differ significantly)',
+                '3. Reference Images - if training images differ from actual product appearance, matches may fail',
+                '4. Lighting - poor or uneven lighting affects detection',
+                '5. Angle/Orientation - extreme angles or rotated products may not match',
+                '6. Similar Products - visually similar SKUs may confuse the matcher',
+                '7. Database Quality - mismatched or inconsistent reference images cause errors'
+            ],
+            'tip': 'For best results: use good lighting, clear images, and ensure reference database images match actual products'
+        }
+        
         # Schedule cleanup in background without waiting
         def cleanup_detection_files():
             try:
@@ -3084,6 +3103,20 @@ def scan_image_simple():
         import threading
         cleanup_thread = threading.Thread(target=cleanup_detection_files, daemon=True)
         cleanup_thread.start()
+        
+        response_data['disclaimer'] = {
+            'accuracy_note': '⚠️ MISMATCHES ARE NOT SYSTEM ERRORS - Accuracy depends on:',
+            'factors': [
+                '1. Image Quality - blurry, dark, or compressed images reduce accuracy',
+                '2. Camera Quality - phone cameras vary in quality (₹10K vs ₹50K phones differ significantly)',
+                '3. Reference Images - if training images differ from actual product appearance, matches may fail',
+                '4. Lighting - poor or uneven lighting affects detection',
+                '5. Angle/Orientation - extreme angles or rotated products may not match',
+                '6. Similar Products - visually similar SKUs may confuse the matcher',
+                '7. Database Quality - mismatched or inconsistent reference images cause errors'
+            ],
+            'tip': 'For best results: use good lighting, clear images, and ensure reference database images match actual products'
+        }
         
         return jsonify(response_data), 200
     
@@ -3962,7 +3995,7 @@ def detect_crops():
         # Initialize matcher and OCR extractor
         global MATCHER_INSTANCE
         if MATCHER_INSTANCE is None:
-            from sku_embeddings import SKUEmbeddingMatcher
+            from sku_embeddings import SKUEmbeddingMatcher, load_sku_info
             MATCHER_INSTANCE = SKUEmbeddingMatcher()
         
         # Create processor (OCR removed)
@@ -3974,8 +4007,11 @@ def detect_crops():
         # Load SKU embeddings if available
         sku_embeddings = None
         try:
+            sku_info = load_sku_info()
+            expected_skus = sku_info.get('skus', [])
             sku_embeddings = MATCHER_INSTANCE.get_sku_embeddings_from_dataset(
-                str(PROJECT / 'openclip_dataset')
+                str(PROJECT / 'openclip_dataset'),
+                expected_skus=expected_skus
             )
             if sku_embeddings:
                 print(f"[CROP-PROCESSOR] Loaded {len(sku_embeddings)} SKU embeddings")

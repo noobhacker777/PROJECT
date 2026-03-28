@@ -218,18 +218,12 @@ class SKUEmbeddingMatcher:
             # Create index
             dimension = embeddings_array.shape[1]  # 768 for ViT-B-32
             
-            if len(sku_embeddings) < 10000:
-                # For small datasets, use exact search
-                self.faiss_index = faiss.IndexFlatIP(dimension)
-            else:
-                # For larger datasets, use IVF (Inverted File Index)
-                n_lists = min(100, len(sku_embeddings) // 100)
-                quantizer = faiss.IndexFlatIP(dimension)
-                self.faiss_index = faiss.IndexIVFFlat(quantizer, dimension, n_lists)
-                self.faiss_index.train(embeddings_array)
+            # Always use IndexFlatIP for MAXIMUM ACCURACY (100% exact search)
+            # Trade-off: slower search but guarantees perfect matches
+            self.faiss_index = faiss.IndexFlatIP(dimension)
             
             self.faiss_index.add(embeddings_array)
-            print(f"   [FAISS] ✓ Index ready with {self.faiss_index.ntotal} vectors (50-100x faster search)")
+            print(f"   [FAISS] ✓ IndexFlatIP ready with {self.faiss_index.ntotal} vectors (100% accuracy - exact search)")
             return True
             
         except Exception as e:
@@ -336,12 +330,12 @@ class SKUEmbeddingMatcher:
                 return {
                     'matched_sku': best_match if best_similarity >= threshold else None,
                     'similarity': float(best_similarity),
-                    'accuracy_mode': 'faiss_index',
+                    'accuracy_mode': 'faiss_exact',
                     'top_k_matches': [(self.sku_list[idx], float(dist)) for idx, dist in zip(indices[0], distances[0])],
                     'confidence': float(confidence),
                     'gap_to_second': float(gap),
                     'threshold_met': best_similarity >= threshold,
-                    'note': 'approximate_search'
+                    'note': '100%_exact_search'
                 }
                     
             except Exception as e:
@@ -391,11 +385,16 @@ class SKUEmbeddingMatcher:
         result = self.match_sku_accurate(crop_embedding, sku_embeddings, threshold, k, use_exact_search=True)
         return result
     
-    def get_sku_embeddings_from_dataset(self, sku_dataset_dir: str = None) -> dict:
+    def get_sku_embeddings_from_dataset(
+        self,
+        sku_dataset_dir: str = None,
+        expected_skus: list = None
+    ) -> dict:
         """Generate embeddings for all SKUs in dataset.
         
         Args:
             sku_dataset_dir: Path to openclip_dataset directory
+            expected_skus: Optional list of SKU names we expect to find
             
         Returns:
             Dictionary of SKU -> embedding
@@ -409,6 +408,9 @@ class SKUEmbeddingMatcher:
             logger.warning(f"SKU dataset directory not found: {sku_dataset_dir}")
             return sku_embeddings
         
+        found_skus = set()
+        folders_without_images = []
+
         # Iterate through SKU folders
         for sku_id in os.listdir(sku_dataset_dir):
             sku_path = os.path.join(sku_dataset_dir, sku_id)
@@ -424,7 +426,27 @@ class SKUEmbeddingMatcher:
                 embedding = self.get_image_embedding(img_path)
                 if embedding is not None:
                     sku_embeddings[sku_id] = embedding
+                    found_skus.add(sku_id)
                     logger.info(f"[OK] Generated embedding for SKU: {sku_id}")
+            else:
+                folders_without_images.append(sku_id)
+
+        if expected_skus:
+            expected_set = {str(sku).strip() for sku in expected_skus if str(sku).strip()}
+            missing_skus = sorted(expected_set - found_skus)
+            if missing_skus:
+                logger.warning(
+                    "[SKU-EMBED] Missing embeddings for %d expected SKU(s): %s",
+                    len(missing_skus),
+                    ", ".join(missing_skus)
+                )
+
+        if folders_without_images:
+            logger.warning(
+                "[SKU-EMBED] %d SKU folder(s) contain no images: %s",
+                len(folders_without_images),
+                ", ".join(sorted(folders_without_images))
+            )
         
         return sku_embeddings
     

@@ -1,14 +1,21 @@
 {
   "skus": [
-    "BISKIT",
-    "CHWINGOM",
-    "DEFAULT",
-    "KURKURE",
-    "NUDALS",
-    "PEPSI",
-    "VODKA",
-    "YACULD"
+    "AMUL CHEESE",
+    "BHU TOMATO KETCHUP",
+    "CAMPA BOTTLE",
+    "KIT KAT SHARE & SNAP",
+    "MAGGIE",
+    "MASALA E MAGGIE",
+    "OREO MEGAPACK",
+    "SILK",
+    "SILK BUBBLY",
+    "SILK HAZELNUT",
+    "SILK MOUSSE",
+    "SIMPLY SALTED WAFFER",
+    "WAFFER",
+    "chataka_pataka",
+    "happydent"
   ],
-  "timestamp": "2026-03-23T08:00:11.023470",
-  "total_skus": 8
+  "timestamp": "2026-03-28T10:34:28.517799",
+  "total_skus": 15
 }
