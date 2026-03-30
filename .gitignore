@@ -11,3 +11,7 @@
 *.xlsx
 *.env
 dataset/
+tmp/
+openclip_dataset/
+.vscode/
+__pycache__/
